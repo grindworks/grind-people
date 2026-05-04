@@ -5,7 +5,7 @@
 - **Serverless & Offline-First (PWA):** No Backend (No PHP, No Node.js). The application MUST run entirely in the browser using HTML, Vanilla JavaScript, and Tailwind CSS.
 - **Wasm SQLite (`sql.js`):** Database operations are performed in-memory via WebAssembly. Always remember to manage memory properly (e.g., `stmt.free()`, `db.close()` before re-instantiating) to prevent memory leaks.
 - **Local File Management:** Read/Write operations are strictly handled via the **File System Access API**. Never suggest uploading files to a server.
-- **Military-Grade Security:** Data saving must pass through Web Crypto API (`AES-256-GCM`) when a password is provided.
+- **Strong Security:** Data saving must pass through Web Crypto API (`AES-256-GCM`) when a password is provided.
 - **Absolute Portability (CRITICAL):**
   - **Zero Build Tools:** Do NOT suggest adding `npm`, `Webpack`, `Vite`, or ES Modules that require a build step. The system MUST work instantly by just opening `index.html` in a modern browser.
   - **No External Dependencies for Assets:** Do NOT suggest external CDNs for images or icons. Everything needed for the UI must be inline to guarantee offline functionality.

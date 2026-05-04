@@ -88,22 +88,40 @@ function setDirty(state) {
     }
   }
 
-  // タブのタイトルに未保存マークを反映
-  const titleBase = "GrindMoney - Serverless Edition";
+  // タブのタイトルとファイル名バッジの反映
+  const fileName =
+    fileHandle && fileHandle.name ? fileHandle.name : "Unsaved.grind";
+  const titleBase = `${fileName} - GrindMoney`;
   document.title = state ? `* ${titleBase}` : titleBase;
+  const filenameBadge = document.getElementById("current-filename");
+  if (filenameBadge) {
+    filenameBadge.textContent = fileName;
+    filenameBadge.classList.remove("hidden");
+  }
 
-  // 自動バックアップの実行 (10秒デバウンス: タイピング中のフリーズ防止)
+  // 自動バックアップの実行 (10秒スロットル: タイピング中のフリーズ防止と確実な保存を両立)
   if (state && db) {
-    if (draftTimer) clearTimeout(draftTimer);
-    draftTimer = setTimeout(async () => {
-      try {
-        await saveDraft(db.export());
-      } catch (e) {
-        console.error(e);
-      }
-    }, 10000);
+    if (!draftTimer) {
+      draftTimer = setTimeout(async () => {
+        try {
+          let data = db.export();
+          const password = document.getElementById("file-password").value;
+          if (password) {
+            data = await encryptData(data, password);
+          }
+          await saveDraft(data);
+        } catch (e) {
+          console.error("Draft save failed", e);
+        } finally {
+          draftTimer = null; // 保存完了後にタイマーを解放
+        }
+      }, 10000);
+    }
   } else if (!state) {
-    if (draftTimer) clearTimeout(draftTimer);
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
     clearDraft();
   }
 }
@@ -242,6 +260,31 @@ async function initSQLite() {
         )
       ) {
         initialData = draft;
+        let Uints = draft;
+        const magic = Uints.slice(0, 8);
+        const isEncrypted = new TextDecoder().decode(magic) === "GRINDENC";
+
+        if (isEncrypted) {
+          let password = document.getElementById("file-password").value;
+          let success = false;
+          while (!success) {
+            try {
+              Uints = await decryptData(Uints, password);
+              success = true;
+              if (password)
+                document.getElementById("file-password").value = password;
+            } catch (err) {
+              password = prompt(
+                "バックアップデータは暗号化されています。解除パスワードを入力してください:",
+              );
+              if (password === null) {
+                Uints = null;
+                break; // キャンセルして処理を中断
+              }
+            }
+          }
+        }
+        initialData = Uints;
       } else {
         await clearDraft();
       }
@@ -272,6 +315,7 @@ async function initSQLite() {
             parent_id INTEGER,
             memo TEXT,
             amount INTEGER,
+            account TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             sort_order INTEGER DEFAULT 0
           );
@@ -289,6 +333,7 @@ async function initSQLite() {
           parent_id INTEGER,
           memo TEXT,
           amount INTEGER,
+          account TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           sort_order INTEGER DEFAULT 0
         );
@@ -399,7 +444,10 @@ function evaluateMath(expr) {
     if (sanitized.includes("**")) return null;
 
     const result = new Function(`return ${sanitized}`)();
-    return !isFinite(result) || isNaN(result) ? null : Math.round(result);
+    if (!isFinite(result) || isNaN(result)) return null;
+    const rounded = Math.round(result);
+    if (rounded > 10000000000000 || rounded < -10000000000000) return null;
+    return rounded;
   } catch (e) {
     return null;
   }
@@ -415,13 +463,28 @@ function addItem(parentId, memo, amount, dateStr, accountStr) {
 
   // フィルター外の日付を追加した場合、自動で「すべての期間」に表示を戻す
   const filterVal = document.getElementById("period-filter")?.value;
-  if (
-    filterVal &&
-    filterVal !== "all" &&
-    dateStr &&
-    !dateStr.startsWith(filterVal)
-  ) {
-    document.getElementById("period-filter").value = "all";
+  let isOutsideFilter = false;
+
+  if (window.currentActiveMonths) {
+    // カスタム期間（1-3月、今年度など）が適用されている場合
+    if (dateStr) {
+      const match = window.currentActiveMonths.some((m) =>
+        dateStr.startsWith(m),
+      );
+      if (!match) isOutsideFilter = true;
+    }
+  } else if (filterVal && filterVal !== "all") {
+    // 単一月のドロップダウンが適用されている場合
+    if (dateStr && !dateStr.startsWith(filterVal)) isOutsideFilter = true;
+  }
+
+  // フィルター外だった場合、全体表示にリセット
+  if (isOutsideFilter) {
+    window.currentActiveMonths = null;
+    setActiveQuickPeriodButton(null);
+    if (document.getElementById("period-filter")) {
+      document.getElementById("period-filter").value = "all";
+    }
     renderData(parentId);
 
     // ステータスバーで通知
@@ -451,16 +514,19 @@ function insertRecord(
 
   // もし科目が空で、かつメモが入力されていれば、DB書き込みの直前で過去履歴を自動検索して埋める
   if (!accountStr && memo) {
+    let suggestStmt;
     try {
-      const suggestStmt = db.prepare(
+      suggestStmt = db.prepare(
         "SELECT account FROM records WHERE parent_id IS NOT NULL AND memo = ? AND account IS NOT NULL AND account != '' ORDER BY id DESC LIMIT 1",
       );
       suggestStmt.bind([memo]);
       if (suggestStmt.step()) {
         accountStr = suggestStmt.get()[0];
       }
-      suggestStmt.free();
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      if (suggestStmt) suggestStmt.free();
+    }
   }
 
   let query =
@@ -474,9 +540,13 @@ function insertRecord(
     params.push(dateStr + " 00:00:00");
   }
 
-  const stmt = db.prepare(query);
-  stmt.run(params);
-  stmt.free();
+  let stmt;
+  try {
+    stmt = db.prepare(query);
+    stmt.run(params);
+  } finally {
+    if (stmt) stmt.free();
+  }
   setDirty(true);
   renderData(parentId);
 }
@@ -518,9 +588,10 @@ function autoSuggestAccount(memoInput) {
   // すでにユーザーが科目を手入力している場合は、上書きせずに尊重する
   if (accountInput.value.trim() !== "") return;
 
+  let stmt;
   try {
     // 過去の明細から「同じメモ」で使われた最新の「科目」を1件だけ検索
-    const stmt = db.prepare(
+    stmt = db.prepare(
       "SELECT account FROM records WHERE parent_id IS NOT NULL AND memo = ? AND account IS NOT NULL AND account != '' ORDER BY id DESC LIMIT 1",
     );
     stmt.bind([memo]);
@@ -548,9 +619,10 @@ function autoSuggestAccount(memoInput) {
         );
       }
     }
-    stmt.free();
   } catch (e) {
     console.error("Auto suggest account failed:", e);
+  } finally {
+    if (stmt) stmt.free();
   }
 }
 
@@ -559,7 +631,7 @@ function updateRecord(id, field, newValue, element) {
   if (!db) return;
 
   // ホワイトリストによるSQLインジェクション対策
-  const allowedFields = ["amount", "memo", "account"];
+  const allowedFields = ["amount", "memo", "account", "created_at"];
   if (!allowedFields.includes(field)) {
     console.error("Invalid field name");
     return;
@@ -578,28 +650,59 @@ function updateRecord(id, field, newValue, element) {
         return;
       }
     }
+  } else if (field === "created_at") {
+    // 全角数字・記号を半角に変換（スマホフリック入力対応）
+    val = val.replace(/[０-９／－]/g, (s) =>
+      String.fromCharCode(s.charCodeAt(0) - 0xfee0),
+    );
+    val = val.replace(/[ー−]/g, "-");
+
+    // "12/31" などの簡易形式をパース
+    let match = val.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+    if (match) {
+      let year = new Date().getFullYear();
+      if (element && element.hasAttribute("data-year")) {
+        year = element.getAttribute("data-year");
+      }
+      val = `${year}-${String(match[1]).padStart(2, "0")}-${String(match[2]).padStart(2, "0")} 00:00:00`;
+    } else {
+      let dateObj = new Date(val);
+      if (isNaN(dateObj.getTime())) {
+        alert("日付の形式が正しくありません。(例: 12/31 または 2024-12-31)");
+        renderData();
+        return;
+      }
+      val = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")} 00:00:00`;
+    }
   }
 
   // 変更があるかチェック (内容が変わっていない場合は何もしない)
-  const checkStmt = db.prepare(`SELECT ${field} FROM records WHERE id = ?`);
-  checkStmt.bind([id]);
-  if (checkStmt.step()) {
-    const currentVal = checkStmt.get()[0];
-    if (currentVal == val) {
-      // 型の違い（"100"と100など）を許容するため == を使用
-      checkStmt.free();
-      // カンマが除去された表示を元に戻す
-      if (element && field === "amount") {
-        element.innerText = val.toLocaleString();
+  let checkStmt;
+  try {
+    checkStmt = db.prepare(`SELECT ${field} FROM records WHERE id = ?`);
+    checkStmt.bind([id]);
+    if (checkStmt.step()) {
+      const currentVal = checkStmt.get()[0];
+      if (currentVal == val) {
+        // 型の違い（"100"と100など）を許容するため == を使用
+        // カンマが除去された表示を元に戻す
+        if (element && field === "amount") {
+          element.innerText = val.toLocaleString("ja-JP");
+        }
+        return; // 変更なし
       }
-      return; // 変更なし
     }
+  } finally {
+    if (checkStmt) checkStmt.free();
   }
-  checkStmt.free();
 
-  const stmt = db.prepare(`UPDATE records SET ${field} = ? WHERE id = ?`);
-  stmt.run([val, id]);
-  stmt.free();
+  let stmt;
+  try {
+    stmt = db.prepare(`UPDATE records SET ${field} = ? WHERE id = ?`);
+    stmt.run([val, id]);
+  } finally {
+    if (stmt) stmt.free();
+  }
 
   setDirty(true);
 
@@ -631,15 +734,17 @@ function updateRecord(id, field, newValue, element) {
   }
 
   // 変更が確定したので全体を再描画（合計値・タグ集計などを正しく反映）
-  renderData();
+  setTimeout(() => {
+    renderData();
 
-  // 再描画で失われたフォーカスを即座に復元
-  if (focusSelector) {
-    requestAnimationFrame(() => {
-      const target = document.querySelector(focusSelector);
-      if (target) target.focus();
-    });
-  }
+    // 再描画で失われたフォーカスを即座に復元
+    if (focusSelector) {
+      requestAnimationFrame(() => {
+        const target = document.querySelector(focusSelector);
+        if (target) target.focus();
+      });
+    }
+  }, 100);
 }
 
 // 日付の「+1日」「-1日」ボタンの処理
@@ -689,11 +794,11 @@ function animateTotal(newTotal) {
     const progress = Math.min((currentTime - startTime) / duration, 1);
     const ease = 1 - Math.pow(1 - progress, 3); // easeOutCubic
     const current = Math.floor(start + (newTotal - start) * ease);
-    el.textContent = current.toLocaleString();
+    el.textContent = current.toLocaleString("ja-JP");
     if (progress < 1) {
       totalAnimationId = requestAnimationFrame(update);
     } else {
-      el.textContent = newTotal.toLocaleString();
+      el.textContent = newTotal.toLocaleString("ja-JP");
       currentDisplayedTotal = newTotal;
       totalAnimationId = null; // 完了時にリセット
     }
@@ -716,9 +821,14 @@ function toggleBlock(id) {
       bodyEl.style.opacity = "0";
       iconEl.style.transform = "rotate(-90deg)";
     } else {
-      bodyEl.style.maxHeight = "2000px";
+      bodyEl.style.maxHeight = bodyEl.scrollHeight + 500 + "px";
       bodyEl.style.opacity = "1";
       iconEl.style.transform = "rotate(0deg)";
+      setTimeout(() => {
+        if (!collapsedBlocks.has(id)) {
+          bodyEl.style.maxHeight = "99999px";
+        }
+      }, 300);
     }
   }
 }
@@ -863,15 +973,21 @@ function changeFiscalMonth() {
   if (input !== null) {
     const month = parseInt(input, 10);
     if (month >= 1 && month <= 12) {
-      localStorage.setItem("fiscalMonth", month.toString());
+      try {
+        localStorage.setItem("fiscalMonth", month.toString());
+      } catch (e) {
+        console.warn("ローカルストレージへの保存がブロックされました");
+      }
       updateFiscalYearButton();
 
-      // 現在フィルターが適用されていれば再描画して反映
-      if (
-        window.currentActiveMonths &&
-        window.currentActiveMonths.length === 12
-      ) {
+      const isFiscalYearActive = document
+        .getElementById("fiscal-year-btn")
+        ?.classList.contains("!bg-purple-600");
+      if (isFiscalYearActive) {
         setFiscalYearFilter();
+      } else {
+        // その他のフィルター時でも、ドロップダウンや画面の再描画だけは行っておく
+        renderData();
       }
     } else {
       alert("1から12の数字を入力してください。");
@@ -919,15 +1035,23 @@ function renderData(focusBlockId = null) {
   if (res.length === 0) return;
 
   const records = res[0].values.map(
-    ([id, parent_id, memo, amount, created_at, account]) => ({
-      id,
-      parent_id,
-      memo,
-      amount,
-      created_at,
-      account,
-      children: [],
-    }),
+    ([id, parent_id, memo, rawAmount, created_at, account]) => {
+      // SQLiteの型汚染攻撃 (Type Juggling) を防ぐためのサニタイズ
+      let safeAmount = null;
+      if (rawAmount !== null && rawAmount !== "") {
+        const num = Number(rawAmount);
+        safeAmount = Number.isFinite(num) ? num : null;
+      }
+      return {
+        id,
+        parent_id,
+        memo,
+        amount: safeAmount,
+        created_at,
+        account,
+        children: [],
+      };
+    },
   );
 
   const recordMap = records.reduce((acc, record) => {
@@ -972,6 +1096,13 @@ function renderData(focusBlockId = null) {
 
   // 親ブロックを「新しいものが一番上」になるようID降順でソート
   filteredTree.sort((a, b) => b.id - a.id);
+
+  // AutoAnimateフリーズ防止のためのアイテム総数カウント
+  let totalItemsCount = 0;
+  filteredTree.forEach((block) => {
+    totalItemsCount += block.children.length;
+  });
+  const disableAnimation = totalItemsCount > 500;
 
   // 合計金額ラベルの表記更新
   const filterEl = document.getElementById("period-filter");
@@ -1062,8 +1193,29 @@ function renderData(focusBlockId = null) {
     if (el.id.startsWith("block-")) {
       const id = parseInt(el.id.replace("block-", ""), 10);
       existingBlockMap.set(id, el);
+    } else if (el.id === "empty-state") {
+      el.remove();
     }
   });
+
+  if (filteredTree.length === 0) {
+    const isFilterActive = periodFilter !== "all" || window.currentActiveMonths;
+    container.innerHTML = `
+      <div id="empty-state" class="flex flex-col items-center justify-center py-20 text-slate-400">
+        <svg class="w-16 h-16 mb-4 opacity-20"><use href="#icon-search"></use></svg>
+        <p class="text-lg font-medium">${isFilterActive ? "該当する記録が見つかりません" : "まだ記録がありません"}</p>
+        <p class="text-sm mt-1">${isFilterActive ? "フィルター条件を変更してみてください" : "上の入力欄から最初のブロックを作成しましょう"}</p>
+      </div>
+    `;
+    existingBlockMap.forEach((el) => el.remove());
+
+    let mobileTagContainer = document.getElementById("mobile-tag-container");
+    if (mobileTagContainer) mobileTagContainer.remove();
+
+    animateTotal(0);
+    renderMemoSuggestions();
+    return;
+  }
 
   let currentDomIndex = 0;
   let grandTotal = 0;
@@ -1076,9 +1228,8 @@ function renderData(focusBlockId = null) {
       // メモ欄から「#タグ」を正規表現で抽出して集計（全角ハッシュタグも吸収）
       const tags = (item.memo || "").match(/[#＃][^\s　]+/g) || [];
       const blockTags = (block.memo || "").match(/[#＃][^\s　]+/g) || [];
-      const allTags = [...new Set([...tags, ...blockTags])].map((t) =>
-        t.replace("＃", "#"),
-      ); // 重複排除と正規化
+      const rawTags = [...tags, ...blockTags].map((t) => t.replace("＃", "#"));
+      const allTags = [...new Set(rawTags)]; // 重複排除と正規化
 
       allTags.forEach((tag) => {
         if (!tagTotals[tag]) tagTotals[tag] = { amount: 0, items: [] };
@@ -1126,7 +1277,7 @@ function renderData(focusBlockId = null) {
           "group block px-2 py-1.5 hover:bg-slate-100 rounded transition-colors cursor-pointer flex justify-between items-center";
         a.innerHTML = `
           <span class="text-sm font-medium text-slate-600 group-hover:text-primary transition-colors truncate">${escapeHtml(tag)}</span>
-          <span class="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded group-hover:bg-white transition-colors">¥${data.amount.toLocaleString()}</span>
+          <span class="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded group-hover:bg-white transition-colors">¥${data.amount.toLocaleString("ja-JP")}</span>
         `;
         a.onclick = (e) => {
           e.preventDefault();
@@ -1157,7 +1308,7 @@ function renderData(focusBlockId = null) {
         const btn = document.createElement("button");
         btn.className =
           "text-left p-3 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-100 transition-colors cursor-pointer flex flex-col gap-1";
-        btn.innerHTML = `<span class="text-sm font-bold text-slate-700 truncate">${escapeHtml(tag)}</span><span class="text-xs font-mono text-slate-500">¥${data.amount.toLocaleString()}</span>`;
+        btn.innerHTML = `<span class="text-sm font-bold text-slate-700 truncate">${escapeHtml(tag)}</span><span class="text-xs font-mono text-slate-500">¥${data.amount.toLocaleString("ja-JP")}</span>`;
         btn.onclick = () => showTagModal(tag, data);
         grid.appendChild(btn);
       });
@@ -1181,14 +1332,50 @@ function renderData(focusBlockId = null) {
   }
 
   // 明細コンテナに対するAutoAnimateの適用 (追加・削除時のアニメーション)
-  document.querySelectorAll('[id^="block-body-"]').forEach((bodyEl) => {
-    const listContainer = bodyEl.firstElementChild;
-    if (listContainer && !listContainer.hasAttribute("data-animated")) {
-      if (window.autoAnimate) {
-        window.autoAnimate(listContainer);
-        listContainer.setAttribute("data-animated", "true");
+  if (!disableAnimation) {
+    document.querySelectorAll('[id^="block-body-"]').forEach((bodyEl) => {
+      const listContainer = bodyEl.firstElementChild;
+      if (listContainer && !listContainer.hasAttribute("data-animated")) {
+        if (window.autoAnimate) {
+          window.autoAnimate(listContainer);
+          listContainer.setAttribute("data-animated", "true");
+        }
       }
-    }
+    });
+  }
+
+  // --- TOC（目次）の自動ハイライト (Scrollspy) ---
+  if (window.tocObserver) window.tocObserver.disconnect();
+
+  window.tocObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          document.querySelectorAll(".toc-item").forEach((el) => {
+            el.classList.remove("text-primary", "bg-primary-50", "font-bold");
+            el.classList.add("text-slate-500", "font-medium");
+          });
+          const activeToc = document.querySelector(
+            `.toc-item[href="#${entry.target.id}"]`,
+          );
+          if (activeToc) {
+            activeToc.classList.remove("text-slate-500", "font-medium");
+            activeToc.classList.add(
+              "text-primary",
+              "bg-primary-50",
+              "font-bold",
+            );
+            activeToc.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }
+      });
+    },
+    { rootMargin: "-20% 0px -60% 0px" },
+  );
+
+  // ブロック要素 (.group/block) のみを安全に監視対象にする
+  document.querySelectorAll(".group\\/block").forEach((block) => {
+    window.tocObserver.observe(block);
   });
 }
 
@@ -1196,7 +1383,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   const blockEl = existingEl || document.createElement("div");
   if (!existingEl) {
     blockEl.id = `block-${block.id}`; // TOCアンカー用
-    blockEl.className = "group/block relative";
+    blockEl.className = "group/block relative scroll-mt-36 sm:scroll-mt-48";
   }
 
   const blockTotal = block.children.reduce(
@@ -1214,37 +1401,39 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   let itemsHtml = "";
   block.children.forEach((item) => {
     let dateDisp = "";
+    let yyyy = today.getFullYear();
     if (item.created_at) {
       // 文字列から直接日付をパースして表示（タイムゾーン安全）
       const dStr = item.created_at.split(" ")[0]; // "YYYY-MM-DD"
       const parts = dStr.split("-");
       if (parts.length === 3) {
-        const imm = parts[1];
-        const idd = parts[2];
-        dateDisp = `<span class="text-xs text-slate-500 font-mono mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">${imm}/${idd}</span>`;
+        yyyy = escapeHtml(parts[0]);
+        const imm = escapeHtml(parts[1]);
+        const idd = escapeHtml(parts[2]);
+        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="text-xs text-slate-500 font-mono mr-2 sm:mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-blue-200 cursor-text hover:bg-slate-200 transition-colors" title="クリックして日付を編集">${imm}/${idd}</span>`;
       }
     }
 
     const accStr = item.account || "";
-    let accountDisp = `<span data-id="${item.id}" data-field="account" contenteditable="true" onpaste="event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'account', this.innerText, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 whitespace-nowrap outline-none focus:ring-2 ring-blue-400 cursor-text transition-colors hover:bg-blue-100 empty:inline-block empty:min-w-[2rem] empty:after:content-['✎'] empty:after:text-blue-300">${escapeHtml(accStr)}</span>`;
+    let accountDisp = `<input type="text" data-id="${item.id}" data-field="account" list="account-suggestions" value="${escapeHtml(accStr)}" placeholder="科目" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'account', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-[72px] shrink-0 text-center placeholder-blue-300">`;
 
     itemsHtml += `
-      <div class="flex justify-between items-center px-8 py-3.5 border-b border-slate-50 group/item hover:bg-slate-50/80 transition-colors">
+      <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 group/item hover:bg-slate-50/80 transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${dateDisp}
           ${accountDisp}
-          <span data-id="${item.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 font-medium truncate outline-none focus:bg-slate-100 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-[3rem] empty:bg-slate-100 empty:after:content-['✎_未入力'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-normal">${escapeHtml(item.memo)}</span>
+          <span data-id="${item.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 font-medium truncate outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-12 empty:bg-slate-100 empty:after:content-['✎_未入力'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-normal">${escapeHtml(item.memo)}</span>
         </div>
-        <div class="flex items-center space-x-4 ml-auto">
-          <span data-id="${item.id}" data-field="amount" contenteditable="true" onpaste="event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'amount', this.innerText, this)" class="font-medium font-mono text-slate-900 outline-none focus:bg-slate-100 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-[2rem] empty:bg-slate-100 empty:after:content-['0'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-sans">${(item.amount || 0).toLocaleString()}</span><span class="text-slate-400 text-xs font-sans">円</span>
-          <button onclick="deleteRecord(${item.id})" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/item:opacity-100 transition-opacity text-xl leading-none mt-[-2px]" title="削除">&times;</button>
+        <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0">
+          <span data-id="${item.id}" data-field="amount" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'amount', this.innerText, this)" class="font-medium font-mono text-slate-900 outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-8 empty:bg-slate-100 empty:after:content-['0'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-sans">${item.amount !== null && item.amount !== "" && item.amount !== undefined ? item.amount.toLocaleString("ja-JP") : ""}</span><span class="text-slate-400 text-xs font-sans">円</span>
+          <button onclick="deleteRecord(${item.id})" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/item:opacity-100 transition-opacity text-xl leading-none -mt-0.5" title="削除">&times;</button>
         </div>
       </div>
     `;
   });
 
   const isCollapsed = collapsedBlocks.has(block.id);
-  const maxH = isCollapsed ? "0px" : "2000px";
+  const maxH = isCollapsed ? "0px" : "99999px";
   const op = isCollapsed ? "0" : "1";
   const iconRotation = isCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
 
@@ -1256,11 +1445,15 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 px-8 py-5 border-b border-slate-100 flex justify-between items-center transition-colors cursor-pointer select-none group/header hover:bg-slate-100">
       <div class="flex items-center gap-3 overflow-hidden">
         <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
-        <h2 data-id="${block.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); document.execCommand('insertText', false, event.clipboardData.getData('text/plain'));" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-[5rem] empty:bg-slate-100 empty:after:content-['✎_タイトル未入力'] empty:after:text-slate-400 empty:after:text-sm empty:after:font-normal">${escapeHtml(block.memo)}</h2>
+        <h2 data-id="${block.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-20 empty:bg-slate-100 empty:after:content-['✎_タイトル未入力'] empty:after:text-slate-400 empty:after:text-sm empty:after:font-normal">${escapeHtml(block.memo)}</h2>
       </div>
-      <div class="flex items-center space-x-4 flex-shrink-0">
-        <div class="font-bold font-mono text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal.toLocaleString()}</span> <span class="text-slate-400 text-sm font-sans">円</span></div>
-        <button onclick="event.stopPropagation(); deleteRecord(${block.id})" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 transition-opacity text-2xl leading-none mt-[-2px] p-1 cursor-pointer" title="ブロックを丸ごと削除">&times;</button>
+      <div class="flex items-center shrink-0">
+        <div class="font-bold font-mono text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal.toLocaleString("ja-JP")}</span> <span class="text-slate-400 text-sm font-sans">円</span></div>
+        <div class="flex items-center pl-4 border-l border-slate-200/50 ml-4 shrink-0 h-8">
+          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 transition-all cursor-pointer" title="ブロックを丸ごと削除">
+            <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
+          </button>
+        </div>
       </div>
     </div>
     <div id="block-body-${block.id}" class="transition-all duration-300 ease-in-out overflow-hidden" style="max-height: ${maxH}; opacity: ${op};">
@@ -1269,25 +1462,25 @@ function updateOrCreateBlockElement(block, existingEl = null) {
       <form id="block-form-${block.id}" class="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 px-3 py-2 -mx-3 rounded-md transition-all focus-within:bg-slate-50 focus-within:ring-1 focus-within:ring-slate-200" onsubmit="event.preventDefault(); addItem(
         ${block.id},
         this.querySelector('.item-memo').value,
-        this.querySelector('.item-amount').value || '0',
+        this.querySelector('.item-amount').value,
         this.querySelector('.item-date').value,
         this.querySelector('.item-account').value
-      ); this.reset(); this.querySelector('.item-memo').focus();">
+      );">
         <span class="text-primary text-xl leading-none font-light hidden sm:inline">+</span>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <span class="text-primary text-xl leading-none font-light sm:hidden">+</span>
           <div class="flex items-center bg-slate-50 rounded-md px-1 py-1 border border-slate-200 transition-colors">
-            <button type="button" onclick="adjustDate(this, -1)" class="text-slate-400 hover:text-slate-800 px-2 font-bold cursor-pointer outline-none transition-colors" title="-1日">-</button>
+            <button type="button" onclick="adjustDate(this, -1)" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors" title="-1日">-</button>
             <input type="date" class="item-date bg-transparent border-0 focus:ring-0 p-0 text-slate-600 text-xs w-[110px] text-center outline-none cursor-pointer" value="${defaultDate}">
-            <button type="button" onclick="adjustDate(this, 1)" class="text-slate-400 hover:text-slate-800 px-2 font-bold cursor-pointer outline-none transition-colors" title="+1日">+</button>
+            <button type="button" onclick="adjustDate(this, 1)" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors" title="+1日">+</button>
           </div>
-          <input type="text" placeholder="科目(任意)" value="" list="account-suggestions" onfocus="this.select()" class="item-account bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-16 sm:w-20 text-sm outline-none text-center">
+          <input type="text" placeholder="科目(任意)" value="" list="account-suggestions" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-account bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-16 sm:w-20 text-sm outline-none text-center">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 sm:pl-0 mt-2 sm:mt-0">
-          <input type="text" placeholder="明細を追加..." list="memo-suggestions" onblur="autoSuggestAccount(this)" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-[100px]">
-          <input type="text" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none">
+          <input type="text" placeholder="明細を追加..." list="memo-suggestions" onblur="autoSuggestAccount(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-amount').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-[100px]">
+          <input type="text" inputmode="decimal" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none">
         </div>
         <button type="submit" class="hidden">追加</button>
       </form>
@@ -1358,8 +1551,8 @@ function insertTemplate(templateId) {
     const stmt = db.prepare(
       "INSERT INTO records (parent_id, memo, amount, account, created_at) VALUES (?, ?, ?, ?, ?)",
     );
-    // テンプレート呼び出し時は金額を0にリセットして展開する
-    stmt.run([parentId, item.memo, 0, item.account, dateStr]);
+    // テンプレート保存時の金額をそのまま展開する（固定費などで便利にするため）
+    stmt.run([parentId, item.memo, item.amount, item.account, dateStr]);
     stmt.free();
   }
 
@@ -1373,6 +1566,11 @@ function deleteRecord(id) {
   const stmt = db.prepare("DELETE FROM records WHERE id = ? OR parent_id = ?");
   stmt.run([id, id]);
   stmt.free();
+
+  // ゾンビステートのクリーンアップ
+  collapsedBlocks.delete(id);
+  delete lastUsedDates[id];
+
   setDirty(true);
   renderData();
 }
@@ -1394,6 +1592,30 @@ async function saveGrindFile(isSaveAs = false) {
   if (password) {
     data = await encryptData(data, password);
   }
+
+  // 保存成功時の視覚的なタクタイル・フィードバックを共通化
+  const showSaveSuccessFeedback = () => {
+    const saveBtn = document.getElementById("btn-save");
+    if (saveBtn) {
+      const iconSvg = saveBtn.querySelector("svg");
+      if (iconSvg) {
+        const originalUse = iconSvg.innerHTML;
+        iconSvg.innerHTML = `<use href="#icon-sparkles"></use>`;
+        iconSvg.classList.add("text-green-500", "scale-125");
+        saveBtn.classList.add("ring-2", "ring-green-500/20", "bg-green-50");
+
+        setTimeout(() => {
+          iconSvg.innerHTML = originalUse;
+          iconSvg.classList.remove("text-green-500", "scale-125");
+          saveBtn.classList.remove(
+            "ring-2",
+            "ring-green-500/20",
+            "bg-green-50",
+          );
+        }, 1500);
+      }
+    }
+  };
 
   if (isSaveAs || !fileHandle || fileHandle.isDummy) {
     if ("showSaveFilePicker" in window) {
@@ -1429,8 +1651,31 @@ async function saveGrindFile(isSaveAs = false) {
       statusEl.className =
         "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
       statusEl.style.pointerEvents = "auto";
+      showSaveSuccessFeedback();
       hideStatus();
       return;
+    }
+  }
+
+  // --- File System権限の「サイレント没収」からのリカバリ ---
+  if (fileHandle && !fileHandle.isDummy) {
+    try {
+      const permission = await fileHandle.queryPermission({
+        mode: "readwrite",
+      });
+      if (permission !== "granted") {
+        const request = await fileHandle.requestPermission({
+          mode: "readwrite",
+        });
+        if (request !== "granted") {
+          throw new Error("書き込み権限が拒否されました");
+        }
+      }
+    } catch (e) {
+      alert(
+        "ファイルの書き込み権限が取得できませんでした。時間経過によりブラウザが権限を取り消した可能性があります。\n\n「複製して保存する (Save As)」をお試しください。",
+      );
+      return; // 権限がなければクラッシュを防ぐため中断
     }
   }
 
@@ -1444,6 +1689,7 @@ async function saveGrindFile(isSaveAs = false) {
   statusEl.className =
     "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
   statusEl.style.pointerEvents = "auto";
+  showSaveSuccessFeedback();
   hideStatus();
 }
 
@@ -1484,11 +1730,21 @@ async function processFileHandle(handle, isDummy = false) {
       }
     }
 
+    let newDb;
+    try {
+      newDb = new SQL.Database(Uints);
+    } catch (e) {
+      throw new Error("Invalid SQLite database file.");
+    }
+
     if (db) {
       db.close();
     }
-    db = new SQL.Database(Uints);
+    db = newDb;
     migrateDatabase();
+
+    // UI更新の前にハンドルをセットして正しいファイル名を反映させる
+    fileHandle = handle;
     setDirty(false);
 
     const statusEl = document.getElementById("status");
@@ -1498,12 +1754,6 @@ async function processFileHandle(handle, isDummy = false) {
     statusEl.style.pointerEvents = "auto";
     renderData();
     hideStatus();
-
-    if (!isDummy) {
-      fileHandle = handle;
-    } else {
-      fileHandle = handle; // Safariフォールバック保存時のファイル名取得に使うため残す
-    }
   } catch (err) {
     console.log("Open cancelled or failed.", err);
     alert("ファイルの読み込みに失敗しました。");
@@ -1665,12 +1915,27 @@ function exportCSV(format = "yayoi") {
         const yyyy = parseInt(parts[0], 10);
         const mm = parts[1];
         const dd = parts[2];
+
+        const numMonth = parseInt(mm, 10);
+        const numDay = parseInt(dd, 10);
         let eraYear;
-        if (yyyy >= 2019)
-          eraYear = yyyy - 2018; // 令和
-        else if (yyyy >= 1989)
-          eraYear = yyyy - 1988; // 平成
-        else eraYear = yyyy - 1925; // 昭和
+
+        // 2019年5月1日以降が令和
+        if (yyyy > 2019 || (yyyy === 2019 && numMonth >= 5)) {
+          eraYear = yyyy - 2018;
+        }
+        // 1989年1月8日以降が平成
+        else if (
+          yyyy > 1989 ||
+          (yyyy === 1989 && (numMonth > 1 || numDay >= 8))
+        ) {
+          eraYear = yyyy - 1988;
+        }
+        // それ以前は簡易的に昭和とする
+        else {
+          eraYear = yyyy - 1925;
+        }
+
         const yy = String(eraYear).padStart(2, "0");
 
         dateFreeway = yy + mm + dd;
@@ -2055,9 +2320,18 @@ function executeCSVImport() {
           String.fromCharCode(s.charCodeAt(0) - 0xfee0),
         )
         .replace(/[ー−△]/g, "-");
+
+      // 会計特有の (1,500) というマイナス表記を -1500 に変換する
+      if (/^\s*\([\d,.]+\)\s*$/.test(normalizedAmount)) {
+        normalizedAmount = "-" + normalizedAmount.replace(/[()]/g, "");
+      }
+
       // その後、半角数字・ピリオド・マイナス以外を除去
       const amountStr = normalizedAmount.replace(/[^\d.-]/g, "");
-      const amount = parseInt(amountStr, 10);
+      let amount = parseInt(amountStr, 10);
+      if (amount > 10000000000000 || amount < -10000000000000) {
+        amount = NaN; // 上限超過は弾く
+      }
 
       // 摘要(メモ)が空の行でも、金額が存在すればインポートする
       if (!isNaN(amount)) {
@@ -2092,11 +2366,23 @@ function executeCSVImport() {
         successCount++;
       }
     }
+
+    if (successCount === 0) {
+      db.run("DELETE FROM records WHERE id = ?", [parentId]);
+    }
+
     db.run("COMMIT;");
     setDirty(true);
 
     // インポートしたブロックは初期状態で折りたたんでおく（見やすさへの配慮）
     collapsedBlocks.add(parentId);
+
+    // インポートしたデータが見えなくなるのを防ぐため、フィルターを解除
+    if (document.getElementById("period-filter")) {
+      document.getElementById("period-filter").value = "all";
+    }
+    window.currentActiveMonths = null;
+    setActiveQuickPeriodButton(null);
 
     alert(`${successCount} 件のデータをインポートしました。`);
   } catch (err) {
@@ -2226,7 +2512,12 @@ function toggleCommandPalette() {
     input.value = "";
     selectedCommandIndex = 0;
     renderCommandList();
-    setTimeout(() => input.focus(), 50);
+
+    if (window.innerWidth > 768) {
+      setTimeout(() => input.focus(), 50);
+    } else {
+      input.blur(); // スマホの場合はソフトウェアキーボードを出さず、リスト表示を優先
+    }
   } else {
     palette.classList.add("hidden");
     palette.classList.remove("flex");
@@ -2283,11 +2574,11 @@ function getFilteredCommands(query) {
       filtered.unshift({
         id: "calculator",
         icon: '<svg class="w-5 h-5 text-green-500"><use href="#icon-sparkles"></use></svg>',
-        title: `= ${calcResult.toLocaleString()} <span class="text-xs text-slate-400 ml-2">(Enterでコピー)</span>`,
+        title: `= ${calcResult.toLocaleString("ja-JP")} <span class="text-xs text-slate-400 ml-2">(Enterでコピー)</span>`,
         action: () => {
           navigator.clipboard.writeText(calcResult.toString());
           const statusEl = document.getElementById("status");
-          statusEl.innerHTML = `<span class="text-green-400">📋</span> ${calcResult.toLocaleString()} をコピーしました`;
+          statusEl.innerHTML = `<span class="text-green-400">📋</span> ${calcResult.toLocaleString("ja-JP")} をコピーしました`;
           statusEl.className =
             "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
           statusEl.style.pointerEvents = "auto";
@@ -2360,6 +2651,18 @@ document.addEventListener("keydown", (e) => {
       closeExportModal();
       return;
     }
+    if (!document.getElementById("tag-modal").classList.contains("hidden")) {
+      closeTagModal();
+      return;
+    }
+    if (
+      !document
+        .getElementById("account-dict-editor-modal")
+        .classList.contains("hidden")
+    ) {
+      closeAccountDictEditor();
+      return;
+    }
   }
 
   if (isCommandPaletteOpen) {
@@ -2383,6 +2686,23 @@ document.addEventListener("keydown", (e) => {
     }
   }
 });
+
+// --- マルチタブ起動によるデータ競合の防止 ---
+const bc = new BroadcastChannel("grindmoney_app_channel");
+
+bc.onmessage = (e) => {
+  if (e.data === "ping") {
+    bc.postMessage("pong"); // すでに開いているタブが応答する
+  } else if (e.data === "pong") {
+    // 自分が後から開いたタブだった場合
+    alert(
+      "⚠️ GrindMoneyは既に別のタブまたはウィンドウで開かれています。\n\nデータ競合（バックアップの巻き戻り）を防ぐため、このタブでの編集は行わないでください。",
+    );
+    document.body.style.opacity = "0.5";
+    document.body.style.pointerEvents = "none";
+  }
+};
+bc.postMessage("ping");
 
 document.getElementById("cmd-input")?.addEventListener("input", (e) => {
   selectedCommandIndex = 0;
@@ -2594,7 +2914,11 @@ const accountDictionaries = {
 function changeAccountDict() {
   const select = document.getElementById("dict-select");
   const dictKey = select.value;
-  localStorage.setItem("accountDict", dictKey);
+  try {
+    localStorage.setItem("accountDict", dictKey);
+  } catch (e) {
+    console.warn("ローカルストレージへの保存がブロックされました");
+  }
   renderAccountSuggestions(dictKey);
 }
 
@@ -2616,11 +2940,15 @@ function loadCustomDict() {
   if (savedDict) {
     try {
       const parsed = JSON.parse(savedDict);
-      // 古い形式(文字列の配列)から新しい形式(オブジェクトの配列)へマイグレーション
-      if (parsed.length > 0 && typeof parsed[0] === "string") {
-        customAccountDict = parsed.map((name) => ({ name, hidden: false }));
+      if (Array.isArray(parsed)) {
+        // 古い形式(文字列の配列)から新しい形式(オブジェクトの配列)へマイグレーション
+        if (parsed.length > 0 && typeof parsed[0] === "string") {
+          customAccountDict = parsed.map((name) => ({ name, hidden: false }));
+        } else {
+          customAccountDict = parsed;
+        }
       } else {
-        customAccountDict = parsed;
+        throw new Error("Invalid format"); // catchブロックに飛ばしてデフォルト値をセットさせる
       }
     } catch (e) {
       // パースに失敗したらデフォルトで上書き
@@ -2642,7 +2970,17 @@ function loadCustomDict() {
 }
 
 function saveCustomDict() {
-  localStorage.setItem("customAccountDict", JSON.stringify(customAccountDict));
+  try {
+    localStorage.setItem(
+      "customAccountDict",
+      JSON.stringify(customAccountDict),
+    );
+  } catch (e) {
+    alert(
+      "ブラウザの保存容量がいっぱいで、辞書を保存できませんでした。不要なデータを削除してください。",
+    );
+    return false;
+  }
   accountDictionaries.custom = customAccountDict
     .filter((i) => !i.hidden)
     .map((i) => i.name);
@@ -2650,6 +2988,7 @@ function saveCustomDict() {
   if (document.getElementById("dict-select").value === "custom") {
     renderAccountSuggestions("custom");
   }
+  return true;
 }
 
 // --- カスタム科目辞書エディタ ---
@@ -2692,7 +3031,7 @@ function closeAccountDictEditor() {
 }
 
 function saveCustomDictAndClose() {
-  saveCustomDict();
+  if (!saveCustomDict()) return; // 失敗時は閉じない
 
   const modal = document.getElementById("account-dict-editor-modal");
   modal.classList.add("hidden");
@@ -2716,17 +3055,31 @@ function renderCustomDictEditor() {
       : "text-slate-700";
 
     li.innerHTML = `
-      <div class="flex items-center gap-3 min-w-0">
-        <svg class="w-5 h-5 text-slate-400 shrink-0"><use href="#icon-drag"></use></svg>
+      <div class="flex items-center gap-3 min-w-0 flex-1">
+        <!-- PC用のドラッグハンドル -->
+        <svg class="hidden sm:block w-5 h-5 text-slate-400 shrink-0"><use href="#icon-drag"></use></svg>
         <span class="font-medium ${textClass} truncate">${escapeHtml(item.name)}</span>
       </div>
-      <button onclick="toggleCustomAccountHidden(${index})" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0 ml-2" title="${title}">
-        <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
-      </button>
+      <div class="flex items-center gap-1 shrink-0">
+        <!-- スマホ用の上下移動ボタン -->
+        <div class="flex flex-col sm:hidden mr-2">
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === customAccountDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customAccountDict.length - 1 ? "disabled" : ""}>▼</button>
+        </div>
+        <!-- 表示/非表示トグル -->
+        <button onclick="toggleCustomAccountHidden(${index})" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0" title="${title}">
+          <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
+        </button>
+      </div>
     `;
     // Drag and Drop イベント
     li.addEventListener("dragstart", (e) => {
       draggedItemIndex = index;
+      // Firefoxでドラッグ＆ドロップを有効化するための必須コード
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", index);
+      }
       setTimeout(() => e.target.classList.add("opacity-30"), 0);
     });
     li.addEventListener("dragover", (e) => e.preventDefault());
@@ -2745,6 +3098,15 @@ function renderCustomDictEditor() {
     );
     list.appendChild(li);
   });
+}
+
+// スマホタップ用のカスタム科目並び替え関数
+function moveCustomDictItem(index, direction) {
+  if (index + direction < 0 || index + direction >= customAccountDict.length)
+    return;
+  const item = customAccountDict.splice(index, 1)[0];
+  customAccountDict.splice(index + direction, 0, item);
+  renderCustomDictEditor();
 }
 
 function toggleCustomAccountHidden(index) {
@@ -2766,7 +3128,7 @@ function showTagModal(tag, data) {
   const modal = document.getElementById("tag-modal");
   document.getElementById("tag-modal-title").textContent = tag;
   document.getElementById("tag-modal-total").textContent =
-    "¥" + data.amount.toLocaleString();
+    "¥" + data.amount.toLocaleString("ja-JP");
 
   const tbody = document.getElementById("tag-modal-body");
   tbody.innerHTML = "";
@@ -2780,14 +3142,15 @@ function showTagModal(tag, data) {
     let dateDisp = "日付なし";
     if (item.date) {
       const parts = item.date.split(" ")[0].split("-");
-      if (parts.length === 3) dateDisp = `${parts[1]}/${parts[2]}`;
+      if (parts.length === 3)
+        dateDisp = `${escapeHtml(parts[1])}/${escapeHtml(parts[2])}`;
     }
 
     tbody.innerHTML += `
       <tr class="hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0">
         <td class="py-4 px-6 w-20 text-xs text-slate-400 font-mono">${dateDisp}</td>
         <td class="py-4 px-4 text-slate-700 font-medium">${escapeHtml(item.memo)}</td>
-        <td class="py-4 px-6 text-right font-mono font-bold text-slate-600">¥${item.amount.toLocaleString()}</td>
+        <td class="py-4 px-6 text-right font-mono font-bold text-slate-600">¥${item.amount.toLocaleString("ja-JP")}</td>
       </tr>
     `;
   });
@@ -2902,7 +3265,14 @@ document.addEventListener("drop", async (e) => {
       if (item.kind === "file") {
         file = item.getAsFile();
         if (item.getAsFileSystemHandle) {
-          handle = await item.getAsFileSystemHandle();
+          try {
+            handle = await item.getAsFileSystemHandle();
+          } catch (err) {
+            console.warn(
+              "ファイルハンドルの取得に失敗しました。フォールバックします:",
+              err,
+            );
+          }
         }
         break;
       }
@@ -2976,9 +3346,37 @@ if (shortcutEl) {
 // --- 最後の砦：タブ閉じ/バックグラウンド移行時の強制バックアップ ---
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && isDirty && db) {
-    // ページが隠れる瞬間に、タイマーを待たずに同期的にIndexedDBへ叩き込む
-    saveDraft(db.export()).catch((e) =>
-      console.error("Emergency save failed", e),
-    );
+    try {
+      // 簡易的なサイズチェック（SQLiteのページ数などで推定）
+      const pageSizeRes = db.exec("PRAGMA page_size");
+      const pageCountRes = db.exec("PRAGMA page_count");
+      if (pageSizeRes.length && pageCountRes.length) {
+        const sizeBytes =
+          pageSizeRes[0].values[0][0] * pageCountRes[0].values[0][0];
+        if (sizeBytes > 5 * 1024 * 1024) {
+          console.warn(
+            "DBが大きすぎるため、終了時のバックアップをスキップします",
+          );
+          return;
+        }
+      }
+
+      const password = document.getElementById("file-password").value;
+      const data = db.export();
+      if (password) {
+        encryptData(data, password)
+          .then((encData) => {
+            saveDraft(encData).catch((e) =>
+              console.error("Emergency save failed", e),
+            );
+          })
+          .catch((e) => console.error("Emergency encrypt failed", e));
+      } else {
+        // ページが隠れる瞬間に、タイマーを待たずに同期的にIndexedDBへ叩き込む
+        saveDraft(data).catch((e) => console.error("Emergency save failed", e));
+      }
+    } catch (e) {
+      console.error("Emergency save error", e);
+    }
   }
 });
