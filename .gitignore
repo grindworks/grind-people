@@ -1,0 +1,15 @@
+# 個人データ・エクスポートファイル
+*.grind
+*.sqlite
+*.csv
+
+# Tailwind Standalone CLI バイナリ
+tailwindcss-macos-arm64
+
+# 開発用スクリプト・ファイル
+export_ai.md
+export_ai.sh
+build.sh
+
+# OS generating files
+.DS_Store
