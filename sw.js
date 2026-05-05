@@ -1,6 +1,13 @@
 // 💡 アップデート時はここを v2, v3... と書き換えることで更新が発火します
-const CACHE_NAME = "grindmoney-v9";
-const urlsToCache = ["/", "/index.html", "/main.js", "/styles.css"];
+const CACHE_NAME = "grindmoney-v10";
+const urlsToCache = [
+  "/",
+  "/index.html",
+  "/main.js",
+  "/styles.css",
+  "/icon-192.png",
+  "/icon-512.png",
+];
 
 const externalUrlsToCache = [
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js",
