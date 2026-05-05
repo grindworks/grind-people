@@ -1,12 +1,11 @@
 // 💡 アップデート時はここを v2, v3... と書き換えることで更新が発火します
-const CACHE_NAME = "grindmoney-v5";
-const urlsToCache = [
-  "/",
-  "/index.html",
-  "/main.js",
-  "/styles.css",
+const CACHE_NAME = "grindmoney-v9";
+const urlsToCache = ["/", "/index.html", "/main.js", "/styles.css"];
+
+const externalUrlsToCache = [
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js",
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm",
+  "https://cdn.jsdelivr.net/npm/@formkit/auto-animate@1.2.2/index.global.js",
 ];
 
 // インストール時にキャッシュを作成
@@ -15,9 +14,29 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    caches.open(CACHE_NAME).then(async (cache) => {
       console.log("Opened cache");
-      return cache.addAll(urlsToCache);
+      // ローカルファイルは通常通り一括追加
+      await cache.addAll(urlsToCache);
+      // 外部CDNファイルはCORS対応のため cors で個別に追加
+      for (const url of externalUrlsToCache) {
+        try {
+          const request = new Request(url, { mode: "cors" });
+          const response = await fetch(request);
+          // 404エラーなどで壊れたキャッシュを保存しないための防波堤
+          if (response.ok) {
+            await cache.put(request, response);
+          } else {
+            console.error(
+              "外部リソースの取得に失敗したためキャッシュをスキップしました:",
+              response.status,
+              url,
+            );
+          }
+        } catch (error) {
+          console.error("外部リソースのキャッシュに失敗しました:", url, error);
+        }
+      }
     }),
   );
 });

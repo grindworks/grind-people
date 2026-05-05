@@ -10,8 +10,38 @@ let collapsedBlocks = new Set(); // 折りたたまれたブロックのIDを記
 let totalAnimationId = null; // アニメーションの多重起動防止用ID
 let draftTimer = null; // ドラフト自動保存用タイマー
 let statusTimeoutId = null; // ステータスバー通知のタイマーID
+let isSaving = false; // 保存処理の多重実行防止フラグ
+let lastSavedPassword = ""; // パスワードの変更・解除検知用
 
 let customAccountDict = []; // カスタム科目辞書の配列
+
+// --- 設定保存用ユーティリティ (SQLiteベース) ---
+function getDbSetting(key, defaultValue = null) {
+  if (!db) return defaultValue;
+  try {
+    const res = db.exec("SELECT value FROM settings WHERE key = ?", [key]);
+    if (res.length > 0 && res[0].values.length > 0) {
+      return res[0].values[0][0];
+    }
+  } catch (e) {
+    console.error("Setting read error:", e);
+  }
+  return defaultValue;
+}
+
+function setDbSetting(key, value) {
+  if (!db) return;
+  try {
+    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [
+      key,
+      value,
+    ]);
+    setDirty(true);
+  } catch (e) {
+    console.error("Setting write error:", e);
+  }
+}
+
 // --- 自動バックアップ (IndexedDB) ロジック ---
 const DB_NAME = "GrindMoneyDB";
 const STORE_NAME = "drafts";
@@ -115,7 +145,7 @@ function setDirty(state) {
         } finally {
           draftTimer = null; // 保存完了後にタイマーを解放
         }
-      }, 10000);
+      }, 2000);
     }
   } else if (!state) {
     if (draftTimer) {
@@ -128,7 +158,7 @@ function setDirty(state) {
 
 // --- 共通ユーティリティ ---
 function escapeHtml(unsafe) {
-  return (unsafe || "")
+  return (unsafe ?? "")
     .toString()
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -137,8 +167,59 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
+// セキュアなパスワード入力プロンプト (Promiseラッパー)
+function requestPasswordPrompt(message) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("password-prompt-modal");
+    const msgEl = document.getElementById("password-prompt-message");
+    const input = document.getElementById("password-prompt-input");
+    const btnSubmit = document.getElementById("password-prompt-submit");
+    const btnCancel = document.getElementById("password-prompt-cancel");
+
+    msgEl.textContent = message;
+    input.value = "";
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    setTimeout(() => input.focus(), 100);
+
+    const cleanup = () => {
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+      btnSubmit.removeEventListener("click", onSubmit);
+      btnCancel.removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKeyDown);
+    };
+    const onSubmit = () => {
+      cleanup();
+      resolve(input.value);
+    };
+    const onCancel = () => {
+      cleanup();
+      resolve(null);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Enter") onSubmit();
+      if (e.key === "Escape") onCancel();
+    };
+
+    btnSubmit.addEventListener("click", onSubmit);
+    btnCancel.addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKeyDown);
+  });
+}
+
+function handlePlainTextPaste(event) {
+  event.preventDefault();
+  const text = (event.clipboardData || window.clipboardData).getData(
+    "text/plain",
+  );
+  const cleanText = text.replace(/[\r\n\t]+/g, " ").trim();
+  document.execCommand("insertText", false, cleanText);
+}
+
 // --- 暗号化ロジック (Web Crypto API) ---
-const MAGIC_BYTES = new TextEncoder().encode("GRINDENC");
+const MAGIC_BYTES = new TextEncoder().encode("GRINDEN2"); // 最新仕様 (60万回)
+const MAGIC_BYTES_LEGACY = new TextEncoder().encode("GRINDENC"); // 過去仕様 (10万回)
 
 async function deriveKey(password, salt, iterations = 600000) {
   const enc = new TextEncoder();
@@ -184,25 +265,26 @@ async function encryptData(data, password) {
 
 async function decryptData(encryptedData, password) {
   const magic = encryptedData.slice(0, 8);
-  const isEncrypted = new TextDecoder().decode(magic) === "GRINDENC";
-  if (!isEncrypted) return encryptedData; // 暗号化されていないファイルはそのまま返す
+  const magicStr = new TextDecoder().decode(magic);
+  const isEncryptedV2 = magicStr === "GRINDEN2";
+  const isEncryptedLegacy = magicStr === "GRINDENC";
+  if (!isEncryptedV2 && !isEncryptedLegacy) return encryptedData; // 暗号化されていないファイルはそのまま返す
 
   const salt = encryptedData.slice(8, 24);
   const iv = encryptedData.slice(24, 36);
   const data = encryptedData.slice(36);
 
   try {
-    // まず最新仕様(60万回)で復号を試みる
-    const key = await deriveKey(password, salt, 600000);
-    const decrypted = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv },
-      key,
-      data,
-    );
-    return new Uint8Array(decrypted);
-  } catch (e) {
-    try {
-      // 失敗した場合、後方互換性を保つために過去仕様(10万回)で再試行
+    if (isEncryptedV2) {
+      const key = await deriveKey(password, salt, 600000);
+      const decrypted = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        data,
+      );
+      return new Uint8Array(decrypted);
+    } else {
+      // Legacy (10万回仕様)
       const legacyKey = await deriveKey(password, salt, 100000);
       const decrypted = await window.crypto.subtle.decrypt(
         { name: "AES-GCM", iv: iv },
@@ -210,9 +292,9 @@ async function decryptData(encryptedData, password) {
         data,
       );
       return new Uint8Array(decrypted);
-    } catch (legacyError) {
-      throw new Error("パスワードが間違っているか、ファイルが破損しています。");
     }
+  } catch (e) {
+    throw new Error("パスワードが間違っているか、ファイルが破損しています。");
   }
 }
 // --------------------------------------
@@ -237,6 +319,13 @@ function migrateDatabase() {
         data TEXT
       );
     `);
+    // 設定用テーブルの作成
+    db.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `);
   } catch (e) {
     console.error("Migration error:", e);
   }
@@ -245,9 +334,15 @@ function migrateDatabase() {
 // 1. WebAssembly版 SQLiteエンジンの初期化
 async function initSQLite() {
   try {
+    if (typeof initSqlJs === "undefined") {
+      throw new Error(
+        "sql.js が読み込まれていません。通信環境またはCDNの障害が疑われます。",
+      );
+    }
+
     const config = {
       locateFile: (filename) =>
-        `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm`,
+        `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${filename}`,
     };
     SQL = await initSqlJs(config);
 
@@ -262,7 +357,8 @@ async function initSQLite() {
         initialData = draft;
         let Uints = draft;
         const magic = Uints.slice(0, 8);
-        const isEncrypted = new TextDecoder().decode(magic) === "GRINDENC";
+        const magicStr = new TextDecoder().decode(magic);
+        const isEncrypted = magicStr === "GRINDENC" || magicStr === "GRINDEN2";
 
         if (isEncrypted) {
           let password = document.getElementById("file-password").value;
@@ -271,15 +367,21 @@ async function initSQLite() {
             try {
               Uints = await decryptData(Uints, password);
               success = true;
-              if (password)
+              if (password) {
                 document.getElementById("file-password").value = password;
+                lastSavedPassword = password;
+              }
             } catch (err) {
-              password = prompt(
+              password = await requestPasswordPrompt(
                 "バックアップデータは暗号化されています。解除パスワードを入力してください:",
               );
               if (password === null) {
-                Uints = null;
-                break; // キャンセルして処理を中断
+                alert(
+                  "起動をキャンセルしました。リロードしてやり直してください。",
+                );
+                document.body.innerHTML =
+                  "<h1 style='text-align:center; margin-top:20vh;'>保護のため停止しました。<br>リロードしてください。</h1>";
+                throw new Error("User canceled decryption");
               }
             }
           }
@@ -296,10 +398,10 @@ async function initSQLite() {
         migrateDatabase();
         setDirty(true);
 
-        const statusEl = document.getElementById("status");
-        statusEl.innerHTML = `<span class="text-orange-400">↺</span> 未保存データを復元しました`;
-        statusEl.style.pointerEvents = "auto";
-        hideStatus();
+        showToast(
+          "未保存データを復元しました",
+          '<span class="text-orange-400">↺</span>',
+        );
       } catch (dbError) {
         // バックアップデータが破損している場合のセーフティーネット
         console.error(
@@ -341,29 +443,45 @@ async function initSQLite() {
 
       migrateDatabase();
 
-      const statusEl = document.getElementById("status");
-      statusEl.innerHTML = `<span class="text-green-400">●</span> SQLite起動完了`;
-      statusEl.style.pointerEvents = "auto";
+      showToast("SQLite起動完了", '<span class="text-green-400">●</span>');
     }
+
+    // DB内の設定を読み込んでUIに反映
+    loadSettingsFromDb();
 
     document.getElementById("app-ui").classList.remove("hidden");
 
     // AutoAnimateの適用 (マイクロインタラクション)
-    if (window.autoAnimate) {
-      window.autoAnimate(document.getElementById("blocks-container"));
+    const container = document.getElementById("blocks-container");
+    if (window.autoAnimate && container) {
+      window.autoAnimate(container);
+      container._autoAnimate = true;
     }
 
-    renderData();
+    // 【パフォーマンス対策】データ数が多い場合は、起動時のフリーズを防ぐためデフォルトで「今年度」のみを表示
+    const countRes = db.exec("SELECT COUNT(*) FROM records");
+    const recordCount = countRes.length > 0 ? countRes[0].values[0][0] : 0;
+    if (recordCount > 50 && !window.currentActiveMonths) {
+      setFiscalYearFilter();
+    } else {
+      renderData();
+    }
 
     // PWAとしてOSからファイルがダブルクリックされた場合の処理
     handleLaunchFiles();
   } catch (err) {
-    const statusEl = document.getElementById("status");
-    statusEl.innerHTML = `<span>⚠️</span> エラー: SQLiteの起動に失敗しました`;
-    statusEl.className =
-      "fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-500/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-bold shadow-xl border border-red-600/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-    statusEl.style.pointerEvents = "auto";
+    showToast("エラー: SQLiteの起動に失敗しました", "<span>⚠️</span>", "error");
     console.error(err);
+
+    // ステータスバーを消し、代わりに致命的エラー画面を大きく表示する
+    const statusEl = document.getElementById("status");
+    if (statusEl) statusEl.style.display = "none";
+
+    const errorScreen = document.getElementById("fatal-error-screen");
+    if (errorScreen) {
+      errorScreen.classList.remove("hidden");
+      errorScreen.classList.add("flex");
+    }
   }
 }
 
@@ -394,10 +512,29 @@ function hideStatus() {
     const statusEl = document.getElementById("status");
     if (statusEl) {
       statusEl.classList.remove("opacity-100", "translate-y-0");
-      statusEl.classList.add("opacity-0", "translate-y-4");
+      statusEl.classList.add("opacity-0", "-translate-y-4");
       statusEl.style.pointerEvents = "none";
     }
   }, 3000);
+}
+
+// トースト通知を表示するヘルパー関数
+function showToast(message, iconHtml = "✅", type = "normal") {
+  const statusEl = document.getElementById("status");
+  if (!statusEl) return;
+
+  const bgClass =
+    type === "error"
+      ? "bg-red-500/90 border-red-600/50"
+      : type === "warning"
+        ? "bg-red-900/90 border-red-700/50"
+        : "bg-slate-800/90 border-slate-700/50";
+
+  statusEl.innerHTML = `${iconHtml} <span>${message}</span>`;
+  statusEl.className = `fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100 ${bgClass}`;
+  statusEl.style.pointerEvents = "auto";
+
+  hideStatus();
 }
 
 // 2. ブロックまたはアイテムの追加
@@ -443,7 +580,80 @@ function evaluateMath(expr) {
     if (!sanitized) return null;
     if (sanitized.includes("**")) return null;
 
-    const result = new Function(`return ${sanitized}`)();
+    // CSP環境 (unsafe-eval禁止) 対応のため、new Function を排除し
+    // Shunting-yard アルゴリズムによる安全な数式評価パーサーを実装
+    let tokens = [];
+    let numStr = "";
+    for (let i = 0; i < sanitized.length; i++) {
+      const c = sanitized[i];
+      if (/[0-9.]/.test(c)) {
+        numStr += c;
+      } else {
+        if (c === "-" && (i === 0 || /[+\-*/(]/.test(sanitized[i - 1]))) {
+          numStr += c;
+        } else {
+          if (numStr) {
+            tokens.push(numStr);
+            numStr = "";
+          }
+          tokens.push(c);
+        }
+      }
+    }
+    if (numStr) tokens.push(numStr);
+
+    const precedence = { "+": 1, "-": 1, "*": 2, "/": 2 };
+    const outputQueue = [];
+    const operatorStack = [];
+
+    for (const token of tokens) {
+      if (!isNaN(parseFloat(token))) {
+        outputQueue.push(parseFloat(token));
+      } else if ("+-*/".includes(token)) {
+        while (
+          operatorStack.length > 0 &&
+          operatorStack[operatorStack.length - 1] !== "(" &&
+          precedence[operatorStack[operatorStack.length - 1]] >=
+            precedence[token]
+        ) {
+          outputQueue.push(operatorStack.pop());
+        }
+        operatorStack.push(token);
+      } else if (token === "(") {
+        operatorStack.push(token);
+      } else if (token === ")") {
+        while (
+          operatorStack.length > 0 &&
+          operatorStack[operatorStack.length - 1] !== "("
+        )
+          outputQueue.push(operatorStack.pop());
+        if (operatorStack.length === 0) return null;
+        operatorStack.pop();
+      }
+    }
+    while (operatorStack.length > 0) {
+      const op = operatorStack.pop();
+      if (op === "(" || op === ")") return null;
+      outputQueue.push(op);
+    }
+
+    const evalStack = [];
+    for (const token of outputQueue) {
+      if (typeof token === "number") evalStack.push(token);
+      else {
+        const b = evalStack.pop();
+        const a = evalStack.pop();
+        if (a === undefined || b === undefined) return null;
+        if (token === "+") evalStack.push(a + b);
+        else if (token === "-") evalStack.push(a - b);
+        else if (token === "*") evalStack.push(a * b);
+        else if (token === "/") evalStack.push(a / b);
+      }
+    }
+
+    if (evalStack.length !== 1) return null;
+    const result = evalStack[0];
+
     if (!isFinite(result) || isNaN(result)) return null;
     const rounded = Math.round(result);
     if (rounded > 10000000000000 || rounded < -10000000000000) return null;
@@ -488,13 +698,10 @@ function addItem(parentId, memo, amount, dateStr, accountStr) {
     renderData(parentId);
 
     // ステータスバーで通知
-    const statusEl = document.getElementById("status");
-    if (statusEl) {
-      statusEl.innerHTML = `<span class="text-blue-400">👀</span> 追加した日付がフィルター外のため、「すべての期間」に表示を戻しました`;
-      statusEl.className =
-        "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-      if (typeof hideStatus === "function") hideStatus();
-    }
+    showToast(
+      "追加した日付がフィルター外のため、「すべての期間」に表示を戻しました",
+      '<span class="text-blue-400">👀</span>',
+    );
   }
 }
 
@@ -510,23 +717,6 @@ function insertRecord(
   if (amountExpr !== null && amountExpr !== "" && parsedAmount === null) {
     alert("金額の入力、または数式が正しくありません。");
     return;
-  }
-
-  // もし科目が空で、かつメモが入力されていれば、DB書き込みの直前で過去履歴を自動検索して埋める
-  if (!accountStr && memo) {
-    let suggestStmt;
-    try {
-      suggestStmt = db.prepare(
-        "SELECT account FROM records WHERE parent_id IS NOT NULL AND memo = ? AND account IS NOT NULL AND account != '' ORDER BY id DESC LIMIT 1",
-      );
-      suggestStmt.bind([memo]);
-      if (suggestStmt.step()) {
-        accountStr = suggestStmt.get()[0];
-      }
-    } catch (e) {
-    } finally {
-      if (suggestStmt) suggestStmt.free();
-    }
   }
 
   let query =
@@ -605,16 +795,11 @@ function autoSuggestAccount(memoInput) {
         accountInput.classList.add(
           "bg-purple-100",
           "text-purple-700",
-          "rounded",
           "transition-colors",
         );
         setTimeout(
           () =>
-            accountInput.classList.remove(
-              "bg-purple-100",
-              "text-purple-700",
-              "rounded",
-            ),
+            accountInput.classList.remove("bg-purple-100", "text-purple-700"),
           1000,
         );
       }
@@ -666,13 +851,14 @@ function updateRecord(id, field, newValue, element) {
       }
       val = `${year}-${String(match[1]).padStart(2, "0")}-${String(match[2]).padStart(2, "0")} 00:00:00`;
     } else {
-      let dateObj = new Date(val);
-      if (isNaN(dateObj.getTime())) {
-        alert("日付の形式が正しくありません。(例: 12/31 または 2024-12-31)");
+      let matchFull = val.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+      if (matchFull) {
+        val = `${matchFull[1]}-${String(matchFull[2]).padStart(2, "0")}-${String(matchFull[3]).padStart(2, "0")} 00:00:00`;
+      } else {
+        alert("日付の形式が正しくありません。(例: 12/31 または 2025-12-31)");
         renderData();
         return;
       }
-      val = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")} 00:00:00`;
     }
   }
 
@@ -733,10 +919,9 @@ function updateRecord(id, field, newValue, element) {
     }
   }
 
-  // 変更が確定したので全体を再描画（合計値・タグ集計などを正しく反映）
-  setTimeout(() => {
+  // ★ 金額や日付が変更された場合のみ画面全体を再描画（レイアウトや合計値が変わるため）
+  if (field === "amount" || field === "created_at") {
     renderData();
-
     // 再描画で失われたフォーカスを即座に復元
     if (focusSelector) {
       requestAnimationFrame(() => {
@@ -744,7 +929,10 @@ function updateRecord(id, field, newValue, element) {
         if (target) target.focus();
       });
     }
-  }, 100);
+  } else {
+    // メモや科目の変更は、すでに画面上の文字（innerText / value）が書き換わっているため、
+    // DBへの保存(UPDATE)と setDirty(true) だけで十分。DOMの再構築はスキップし、超速タイピングを邪魔しない。
+  }
 }
 
 // 日付の「+1日」「-1日」ボタンの処理
@@ -795,6 +983,7 @@ function animateTotal(newTotal) {
     const ease = 1 - Math.pow(1 - progress, 3); // easeOutCubic
     const current = Math.floor(start + (newTotal - start) * ease);
     el.textContent = current.toLocaleString("ja-JP");
+    currentDisplayedTotal = current;
     if (progress < 1) {
       totalAnimationId = requestAnimationFrame(update);
     } else {
@@ -817,6 +1006,8 @@ function toggleBlock(id) {
   const iconEl = document.getElementById(`block-icon-${id}`);
   if (bodyEl && iconEl) {
     if (collapsedBlocks.has(id)) {
+      bodyEl.style.maxHeight = bodyEl.scrollHeight + "px";
+      bodyEl.offsetHeight; // リフローを強制してトランジションを有効化する
       bodyEl.style.maxHeight = "0px";
       bodyEl.style.opacity = "0";
       iconEl.style.transform = "rotate(-90deg)";
@@ -859,11 +1050,14 @@ function updatePeriodDropdown() {
   let html = `<option value="all">すべての期間</option>`;
   if (years.size > 0) {
     html += `<optgroup label="--- 年度で絞り込み ---">`;
-    [...years].forEach((y) => (html += `<option value="${y}">${y}年</option>`));
+    [...years].forEach(
+      (y) =>
+        (html += `<option value="${escapeHtml(y)}">${escapeHtml(y)}年</option>`),
+    );
     html += `</optgroup><optgroup label="--- 月別で絞り込み ---">`;
     months.forEach((ym) => {
       const [y, m] = ym.split("-");
-      html += `<option value="${ym}">${y}年${parseInt(m, 10)}月</option>`;
+      html += `<option value="${escapeHtml(ym)}">${escapeHtml(y)}年${parseInt(m, 10)}月</option>`;
     });
     html += `</optgroup>`;
   }
@@ -886,7 +1080,11 @@ function handleDropdownChange() {
   window.currentActiveMonths = null;
   currentDisplayedTotal = 0; // 金額アニメーション強制リセット
   setActiveQuickPeriodButton(null);
-  renderData();
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
 }
 
 // クイックセレクターのアクティブ状態を更新
@@ -918,7 +1116,11 @@ function setPeriodFilter(val, btn = null) {
   const select = document.getElementById("period-filter");
   if (select) {
     select.value = val;
-    renderData();
+    if (document.startViewTransition) {
+      document.startViewTransition(() => renderData());
+    } else {
+      renderData();
+    }
   }
 }
 
@@ -928,7 +1130,9 @@ function setMultiMonthFilter(monthArray, btn = null) {
   let baseYear = new Date().getFullYear();
   const select = document.getElementById("period-filter");
   const currentFilter = select ? select.value : "all";
-  if (currentFilter !== "all" && currentFilter.includes("-")) {
+  if (window.currentActiveMonths && window.currentActiveMonths.length > 0) {
+    baseYear = parseInt(window.currentActiveMonths[0].split("-")[0], 10);
+  } else if (currentFilter !== "all" && currentFilter.includes("-")) {
     baseYear = parseInt(currentFilter.split("-")[0]);
   } else if (currentFilter !== "all" && currentFilter.length === 4) {
     baseYear = parseInt(currentFilter);
@@ -940,7 +1144,11 @@ function setMultiMonthFilter(monthArray, btn = null) {
   if (select) select.value = "all";
   currentDisplayedTotal = 0;
   setActiveQuickPeriodButton(btn);
-  renderData();
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
 }
 
 // カレンダー年フィルター (1月〜12月: 個人事業主・12月決算向け)
@@ -955,29 +1163,29 @@ function setCalendarYearFilter(btn = null) {
   if (select) select.value = "all";
   currentDisplayedTotal = 0;
   setActiveQuickPeriodButton(btn);
-  renderData();
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
 }
 
 // 年度の開始月を更新するUI
 function updateFiscalYearButton() {
-  const m = parseInt(localStorage.getItem("fiscalMonth") || "4", 10);
-  const btn = document.getElementById("fiscal-year-btn");
-  if (btn) {
-    btn.textContent = `今年度 (${m}月始)`;
+  const m = parseInt(getDbSetting("fiscalMonth", "4"), 10);
+  const gearBtn = document.getElementById("fiscal-month-gear-btn");
+  if (gearBtn) {
+    gearBtn.title = `開始月を変更 (現在の設定: ${m}月始)`;
   }
 }
 
 function changeFiscalMonth() {
-  const current = localStorage.getItem("fiscalMonth") || "4";
+  const current = getDbSetting("fiscalMonth", "4");
   const input = prompt("年度の開始月（1〜12）を入力してください:", current);
   if (input !== null) {
     const month = parseInt(input, 10);
     if (month >= 1 && month <= 12) {
-      try {
-        localStorage.setItem("fiscalMonth", month.toString());
-      } catch (e) {
-        console.warn("ローカルストレージへの保存がブロックされました");
-      }
+      setDbSetting("fiscalMonth", month.toString());
       updateFiscalYearButton();
 
       const isFiscalYearActive = document
@@ -987,7 +1195,11 @@ function changeFiscalMonth() {
         setFiscalYearFilter();
       } else {
         // その他のフィルター時でも、ドロップダウンや画面の再描画だけは行っておく
-        renderData();
+        if (document.startViewTransition) {
+          document.startViewTransition(() => renderData());
+        } else {
+          renderData();
+        }
       }
     } else {
       alert("1から12の数字を入力してください。");
@@ -995,10 +1207,44 @@ function changeFiscalMonth() {
   }
 }
 
+// 前年度フィルター (設定された開始月から12ヶ月、さらに1年前)
+function setPreviousFiscalYearFilter(btn = null) {
+  const today = new Date();
+  const startMonth = parseInt(getDbSetting("fiscalMonth", "4"), 10);
+  let startYear = today.getFullYear();
+
+  if (today.getMonth() + 1 < startMonth) {
+    startYear--;
+  }
+  startYear--; // ここでさらに1年引くことで「前年度」にする
+
+  let months = [];
+  for (let i = 0; i < 12; i++) {
+    let m = startMonth + i;
+    let y = startYear;
+    if (m > 12) {
+      m -= 12;
+      y++;
+    }
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+  }
+
+  window.currentActiveMonths = months;
+  const select = document.getElementById("period-filter");
+  if (select) select.value = "all";
+  currentDisplayedTotal = 0;
+  setActiveQuickPeriodButton(btn);
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
+}
+
 // 年度フィルター (設定された開始月から12ヶ月)
 function setFiscalYearFilter(btn = null) {
   const today = new Date();
-  const startMonth = parseInt(localStorage.getItem("fiscalMonth") || "4", 10);
+  const startMonth = parseInt(getDbSetting("fiscalMonth", "4"), 10);
   let startYear = today.getFullYear();
 
   if (today.getMonth() + 1 < startMonth) {
@@ -1021,7 +1267,11 @@ function setFiscalYearFilter(btn = null) {
   if (select) select.value = "all";
   currentDisplayedTotal = 0;
   setActiveQuickPeriodButton(btn || document.getElementById("fiscal-year-btn"));
-  renderData();
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
 }
 
 // 3. ブロック構造の描画
@@ -1108,8 +1358,17 @@ function renderData(focusBlockId = null) {
   const filterEl = document.getElementById("period-filter");
   const totalLabelEl = document.getElementById("grand-total-label");
   if (totalLabelEl && filterEl) {
-    if (window.currentActiveMonths) {
-      totalLabelEl.textContent = "Custom Period / Fiscal Period";
+    if (window.currentActiveMonths && window.currentActiveMonths.length > 0) {
+      const sorted = [...window.currentActiveMonths].sort();
+      const formatMonth = (ym) => {
+        const [y, m] = ym.split("-");
+        return `${y}年${parseInt(m, 10)}月`;
+      };
+      if (sorted.length === 1) {
+        totalLabelEl.textContent = formatMonth(sorted[0]);
+      } else {
+        totalLabelEl.textContent = `${formatMonth(sorted[0])} 〜 ${formatMonth(sorted[sorted.length - 1])}`;
+      }
     } else {
       totalLabelEl.textContent =
         filterEl.value !== "all"
@@ -1120,22 +1379,10 @@ function renderData(focusBlockId = null) {
 
   // 左側 TOC (目次) の構築
   const tocContainer = document.getElementById("toc-container");
-  if (tocContainer) {
+  const tocList = document.getElementById("toc-list");
+  if (tocContainer && tocList) {
     const prevScrollTop = tocContainer.scrollTop; // スクロール位置を記憶
-
-    // 検索ボックスを追加
-    tocContainer.innerHTML = `
-      <div class="sticky top-0 bg-slate-50 pt-2 pb-4 z-10">
-        <div class="font-bold text-slate-600 mb-2 px-2 uppercase text-[10px] tracking-widest">Index</div>
-        <div class="relative px-2">
-          <svg class="w-3 h-3 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><use href="#icon-search"></use></svg>
-          <input type="text" id="toc-filter" placeholder="目次を絞り込み..." class="w-full bg-slate-100 border border-slate-200 text-slate-700 text-xs rounded-md pl-7 pr-2 py-1.5 outline-none focus:bg-white focus:border-primary transition-colors" autocomplete="off">
-        </div>
-      </div>
-      <div id="toc-list" class="space-y-0.5 mt-1 pb-4"></div>
-    `;
-
-    const tocList = document.getElementById("toc-list");
+    tocList.innerHTML = "";
 
     filteredTree.forEach((block) => {
       const a = document.createElement("a");
@@ -1153,36 +1400,14 @@ function renderData(focusBlockId = null) {
       tocList.appendChild(a);
     });
 
-    // 検索ボックスのリアルタイム・フィルタリング処理
-    const tocFilter = document.getElementById("toc-filter");
-    if (tocFilter) {
-      // 既存の入力状態（検索ワード）を復元する処理
-      if (window.currentTocFilterValue) {
-        tocFilter.value = window.currentTocFilterValue;
-        applyTocFilter(window.currentTocFilterValue);
-      }
-
-      tocFilter.addEventListener("input", (e) => {
-        window.currentTocFilterValue = e.target.value; // 状態をグローバルに保持
-        applyTocFilter(e.target.value);
-      });
-    }
-
-    function applyTocFilter(keyword) {
-      const q = keyword.toLowerCase();
-      const items = tocList.querySelectorAll(".toc-item");
-      items.forEach((item) => {
-        if (item.textContent.toLowerCase().includes(q)) {
-          item.style.display = "block";
-        } else {
-          item.style.display = "none";
-        }
-      });
-    }
-
     // レンダリング後にスクロール位置を復元
     requestAnimationFrame(() => {
       tocContainer.scrollTop = prevScrollTop;
+      // 検索フィルターが入力中なら再適用
+      const tocFilter = document.getElementById("toc-filter");
+      if (tocFilter && tocFilter.value) {
+        applyTocFilter(tocFilter.value);
+      }
     });
   }
 
@@ -1223,7 +1448,8 @@ function renderData(focusBlockId = null) {
 
   filteredTree.forEach((block) => {
     block.children.forEach((item) => {
-      grandTotal += item.amount || 0;
+      const safeAmount = parseInt(item.amount || 0, 10);
+      grandTotal += safeAmount;
 
       // メモ欄から「#タグ」を正規表現で抽出して集計（全角ハッシュタグも吸収）
       const tags = (item.memo || "").match(/[#＃][^\s　]+/g) || [];
@@ -1233,11 +1459,11 @@ function renderData(focusBlockId = null) {
 
       allTags.forEach((tag) => {
         if (!tagTotals[tag]) tagTotals[tag] = { amount: 0, items: [] };
-        tagTotals[tag].amount += item.amount || 0;
+        tagTotals[tag].amount += safeAmount;
         tagTotals[tag].items.push({
           date: item.created_at,
           memo: item.memo,
-          amount: item.amount || 0,
+          amount: safeAmount,
         });
       });
     });
@@ -1283,7 +1509,7 @@ function renderData(focusBlockId = null) {
           e.preventDefault();
           showTagModal(tag, data);
         };
-        tocContainer.appendChild(a);
+        if (tocList) tocList.appendChild(a);
       });
   }
 
@@ -1318,7 +1544,7 @@ function renderData(focusBlockId = null) {
   }
 
   // 数字のアニメーション更新
-  animateTotal(grandTotal);
+  animateTotal(Math.round(grandTotal));
 
   renderMemoSuggestions();
 
@@ -1329,19 +1555,6 @@ function renderData(focusBlockId = null) {
     if (targetInput) {
       targetInput.focus({ preventScroll: false });
     }
-  }
-
-  // 明細コンテナに対するAutoAnimateの適用 (追加・削除時のアニメーション)
-  if (!disableAnimation) {
-    document.querySelectorAll('[id^="block-body-"]').forEach((bodyEl) => {
-      const listContainer = bodyEl.firstElementChild;
-      if (listContainer && !listContainer.hasAttribute("data-animated")) {
-        if (window.autoAnimate) {
-          window.autoAnimate(listContainer);
-          listContainer.setAttribute("data-animated", "true");
-        }
-      }
-    });
   }
 
   // --- TOC（目次）の自動ハイライト (Scrollspy) ---
@@ -1377,6 +1590,19 @@ function renderData(focusBlockId = null) {
   document.querySelectorAll(".group\\/block").forEach((block) => {
     window.tocObserver.observe(block);
   });
+
+  // --- AutoAnimate のフリーズ防止（デッドコードの修正） ---
+  if (disableAnimation) {
+    if (container._autoAnimate) {
+      container.removeAttribute("data-auto-animate");
+      container._autoAnimate = undefined; // 内部状態のクリア
+    }
+  } else {
+    if (window.autoAnimate && !container._autoAnimate) {
+      window.autoAnimate(container);
+      container._autoAnimate = true;
+    }
+  }
 }
 
 function updateOrCreateBlockElement(block, existingEl = null) {
@@ -1387,7 +1613,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   }
 
   const blockTotal = block.children.reduce(
-    (sum, item) => sum + (item.amount || 0),
+    (sum, item) => sum + parseInt(item.amount || 0, 10),
     0,
   );
 
@@ -1410,23 +1636,23 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         yyyy = escapeHtml(parts[0]);
         const imm = escapeHtml(parts[1]);
         const idd = escapeHtml(parts[2]);
-        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="text-xs text-slate-500 font-mono mr-2 sm:mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-blue-200 cursor-text hover:bg-slate-200 transition-colors" title="クリックして日付を編集">${imm}/${idd}</span>`;
+        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="text-xs text-slate-500 font-mono mr-2 sm:mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-blue-200 cursor-text hover:bg-slate-200 transition-colors" title="クリックして日付を編集">${imm}/${idd}</span>`;
       }
     }
 
     const accStr = item.account || "";
-    let accountDisp = `<input type="text" data-id="${item.id}" data-field="account" list="account-suggestions" value="${escapeHtml(accStr)}" placeholder="科目" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'account', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-[72px] shrink-0 text-center placeholder-blue-300">`;
+    let accountDisp = `<input type="text" data-id="${item.id}" data-field="account" list="account-suggestions" value="${escapeHtml(accStr)}" placeholder="科目" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'account', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-[72px] shrink-0 text-center placeholder-blue-300">`;
 
     itemsHtml += `
       <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 group/item hover:bg-slate-50/80 transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${dateDisp}
           ${accountDisp}
-          <span data-id="${item.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 font-medium truncate outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-12 empty:bg-slate-100 empty:after:content-['✎_未入力'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-normal">${escapeHtml(item.memo)}</span>
+          <span data-id="${item.id}" data-field="memo" contenteditable="true" oninput="setDirty(true)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 font-medium truncate outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-12 empty:bg-slate-100 empty:after:content-['✎_未入力'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-normal">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0">
-          <span data-id="${item.id}" data-field="amount" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'amount', this.innerText, this)" class="font-medium font-mono text-slate-900 outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-8 empty:bg-slate-100 empty:after:content-['0'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-sans">${item.amount !== null && item.amount !== "" && item.amount !== undefined ? item.amount.toLocaleString("ja-JP") : ""}</span><span class="text-slate-400 text-xs font-sans">円</span>
-          <button onclick="deleteRecord(${item.id})" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/item:opacity-100 transition-opacity text-xl leading-none -mt-0.5" title="削除">&times;</button>
+          <span data-id="${item.id}" data-field="amount" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'amount', this.innerText, this)" class="font-medium font-mono text-slate-900 outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-8 empty:bg-slate-100 empty:after:content-['0'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-sans">${item.amount !== null && item.amount !== "" && item.amount !== undefined ? item.amount.toLocaleString("ja-JP") : ""}</span><span class="text-slate-400 text-xs font-sans">円</span>
+          <button onclick="deleteRecord(${item.id})" aria-label="削除" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/item:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-opacity text-xl leading-none -mt-0.5" title="削除">&times;</button>
         </div>
       </div>
     `;
@@ -1445,12 +1671,12 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 px-8 py-5 border-b border-slate-100 flex justify-between items-center transition-colors cursor-pointer select-none group/header hover:bg-slate-100">
       <div class="flex items-center gap-3 overflow-hidden">
         <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
-        <h2 data-id="${block.id}" data-field="memo" contenteditable="true" onpaste="event.preventDefault(); const text = (event.clipboardData || window.clipboardData).getData('text/plain'); const cleanText = text.replace(/[\\r\\n\\t]+/g, ' ').trim(); document.execCommand('insertText', false, cleanText);" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-20 empty:bg-slate-100 empty:after:content-['✎_タイトル未入力'] empty:after:text-slate-400 empty:after:text-sm empty:after:font-normal">${escapeHtml(block.memo)}</h2>
+        <h2 data-id="${block.id}" data-field="memo" contenteditable="true" oninput="setDirty(true)" onpaste="handlePlainTextPaste(event)" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-20 empty:bg-slate-100 empty:after:content-['✎_タイトル未入力'] empty:after:text-slate-400 empty:after:text-sm empty:after:font-normal">${escapeHtml(block.memo)}</h2>
       </div>
       <div class="flex items-center shrink-0">
         <div class="font-bold font-mono text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal.toLocaleString("ja-JP")}</span> <span class="text-slate-400 text-sm font-sans">円</span></div>
         <div class="flex items-center pl-4 border-l border-slate-200/50 ml-4 shrink-0 h-8">
-          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 transition-all cursor-pointer" title="ブロックを丸ごと削除">
+          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="ブロックを削除" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="ブロックを丸ごと削除">
             <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
           </button>
         </div>
@@ -1471,16 +1697,16 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <span class="text-primary text-xl leading-none font-light sm:hidden">+</span>
           <div class="flex items-center bg-slate-50 rounded-md px-1 py-1 border border-slate-200 transition-colors">
-            <button type="button" onclick="adjustDate(this, -1)" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors" title="-1日">-</button>
-            <input type="date" class="item-date bg-transparent border-0 focus:ring-0 p-0 text-slate-600 text-xs w-[110px] text-center outline-none cursor-pointer" value="${defaultDate}">
-            <button type="button" onclick="adjustDate(this, 1)" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors" title="+1日">+</button>
+            <button type="button" onclick="adjustDate(this, -1)" aria-label="1日戻す" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors touch-manipulation" title="-1日">-</button>
+            <input type="date" class="item-date bg-transparent border-0 focus:ring-0 p-0 text-slate-600 text-xs w-[110px] text-center outline-none cursor-pointer" value="${defaultDate}" oninput="setDirty(true)">
+            <button type="button" onclick="adjustDate(this, 1)" aria-label="1日進める" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors touch-manipulation" title="+1日">+</button>
           </div>
-          <input type="text" placeholder="科目(任意)" value="" list="account-suggestions" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-account bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-16 sm:w-20 text-sm outline-none text-center">
+          <input type="text" placeholder="科目(任意)" value="" list="account-suggestions" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-account bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-16 sm:w-20 text-sm outline-none text-center">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 sm:pl-0 mt-2 sm:mt-0">
-          <input type="text" placeholder="明細を追加..." list="memo-suggestions" onblur="autoSuggestAccount(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-amount').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-[100px]">
-          <input type="text" inputmode="decimal" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none">
+          <input type="text" placeholder="明細を追加..." list="memo-suggestions" oninput="setDirty(true)" onblur="autoSuggestAccount(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.closest('form').querySelector('.item-amount').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-[100px]">
+          <input type="text" inputmode="decimal" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none" oninput="setDirty(true)">
         </div>
         <button type="submit" class="hidden">追加</button>
       </form>
@@ -1519,9 +1745,13 @@ function saveTemplate(blockId) {
   );
   if (!tplName) return;
 
-  const stmt = db.prepare("INSERT INTO templates (name, data) VALUES (?, ?)");
-  stmt.run([tplName, JSON.stringify(items)]);
-  stmt.free();
+  let stmt;
+  try {
+    stmt = db.prepare("INSERT INTO templates (name, data) VALUES (?, ?)");
+    stmt.run([tplName, JSON.stringify(items)]);
+  } finally {
+    if (stmt) stmt.free();
+  }
   setDirty(true);
   alert(
     `✅ テンプレート「${tplName}」を保存しました。\nコマンドパレット(Cmd+K)からいつでも一発で呼び出せます。`,
@@ -1535,7 +1765,16 @@ function insertTemplate(templateId) {
   ]);
   if (res.length === 0) return;
   const tplName = res[0].values[0][0];
-  const tplData = JSON.parse(res[0].values[0][1] || "[]");
+
+  let tplData = [];
+  try {
+    tplData = JSON.parse(res[0].values[0][1] || "[]");
+  } catch (e) {
+    alert(
+      "テンプレートデータの読み込みに失敗しました。データが破損している可能性があります。",
+    );
+    return;
+  }
 
   // 新しい親ブロックを作成
   db.run("INSERT INTO records (memo, amount) VALUES (?, ?)", [tplName, null]);
@@ -1547,13 +1786,42 @@ function insertTemplate(templateId) {
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
 
   // 子要素を展開して一気にINSERT
-  for (let item of tplData) {
-    const stmt = db.prepare(
+  let insertStmt = null;
+  try {
+    insertStmt = db.prepare(
       "INSERT INTO records (parent_id, memo, amount, account, created_at) VALUES (?, ?, ?, ?, ?)",
     );
-    // テンプレート保存時の金額をそのまま展開する（固定費などで便利にするため）
-    stmt.run([parentId, item.memo, item.amount, item.account, dateStr]);
-    stmt.free();
+    for (let item of tplData) {
+      // テンプレート保存時の金額をそのまま展開する（固定費などで便利にするため）
+      const safeAmount =
+        item.amount === "" || item.amount === undefined ? null : item.amount;
+      insertStmt.run([parentId, item.memo, safeAmount, item.account, dateStr]);
+    }
+  } finally {
+    if (insertStmt) insertStmt.free();
+  }
+
+  // フィルター外の日付を追加した場合、自動で「すべての期間」に表示を戻すフェイルセーフ
+  const filterVal = document.getElementById("period-filter")?.value;
+  let isOutsideFilter = false;
+
+  if (window.currentActiveMonths) {
+    const match = window.currentActiveMonths.some((m) => dateStr.startsWith(m));
+    if (!match) isOutsideFilter = true;
+  } else if (filterVal && filterVal !== "all") {
+    if (!dateStr.startsWith(filterVal)) isOutsideFilter = true;
+  }
+
+  if (isOutsideFilter) {
+    window.currentActiveMonths = null;
+    setActiveQuickPeriodButton(null);
+    if (document.getElementById("period-filter")) {
+      document.getElementById("period-filter").value = "all";
+    }
+    showToast(
+      "追加した日付がフィルター外のため、「すべての期間」に表示を戻しました",
+      '<span class="text-blue-400">👀</span>',
+    );
   }
 
   setDirty(true);
@@ -1563,9 +1831,13 @@ function insertTemplate(templateId) {
 // 3.5 データの削除（DELETE文の実行）
 function deleteRecord(id) {
   if (!confirm("この記録を削除しますか？")) return;
-  const stmt = db.prepare("DELETE FROM records WHERE id = ? OR parent_id = ?");
-  stmt.run([id, id]);
-  stmt.free();
+  let stmt;
+  try {
+    stmt = db.prepare("DELETE FROM records WHERE id = ? OR parent_id = ?");
+    stmt.run([id, id]);
+  } finally {
+    if (stmt) stmt.free();
+  }
 
   // ゾンビステートのクリーンアップ
   collapsedBlocks.delete(id);
@@ -1578,119 +1850,161 @@ function deleteRecord(id) {
 // 4. 【核心部】 File System Access API を使った保存
 async function saveGrindFile(isSaveAs = false) {
   if (!db) return;
+  if (isSaving) return;
+  isSaving = true;
 
-  // 保存前に、現在入力中の要素のフォーカスを外してデータ(DB)を確定させる
-  if (
-    document.activeElement &&
-    typeof document.activeElement.blur === "function"
-  ) {
-    document.activeElement.blur();
-  }
-
-  let data = db.export();
-  const password = document.getElementById("file-password").value;
-  if (password) {
-    data = await encryptData(data, password);
-  }
-
-  // 保存成功時の視覚的なタクタイル・フィードバックを共通化
-  const showSaveSuccessFeedback = () => {
-    const saveBtn = document.getElementById("btn-save");
-    if (saveBtn) {
-      const iconSvg = saveBtn.querySelector("svg");
-      if (iconSvg) {
-        const originalUse = iconSvg.innerHTML;
-        iconSvg.innerHTML = `<use href="#icon-sparkles"></use>`;
-        iconSvg.classList.add("text-green-500", "scale-125");
-        saveBtn.classList.add("ring-2", "ring-green-500/20", "bg-green-50");
-
-        setTimeout(() => {
-          iconSvg.innerHTML = originalUse;
-          iconSvg.classList.remove("text-green-500", "scale-125");
-          saveBtn.classList.remove(
-            "ring-2",
-            "ring-green-500/20",
-            "bg-green-50",
-          );
-        }, 1500);
-      }
+  try {
+    // 保存前に、現在入力中の要素のフォーカスを外してデータ(DB)を確定させる
+    if (
+      document.activeElement &&
+      typeof document.activeElement.blur === "function"
+    ) {
+      document.activeElement.blur();
     }
-  };
 
-  if (isSaveAs || !fileHandle || fileHandle.isDummy) {
-    if ("showSaveFilePicker" in window) {
-      try {
-        fileHandle = await window.showSaveFilePicker({
-          types: [
-            {
-              description: "GrindMoney Database",
-              accept: { "application/x-sqlite3": [".grind"] },
-            },
-          ],
-        });
-      } catch (err) {
-        console.log("Save cancelled.", err);
+    // ★ 抽出前にDBをデフラグし、ファイルサイズを最小化する
+    db.run("VACUUM");
+
+    let data = db.export();
+    const currentPassword = document.getElementById("file-password").value;
+
+    // 【セキュリティ修正 1】: パスワードを空にして暗号化を解除しようとした場合の警告
+    if (lastSavedPassword !== "" && currentPassword === "") {
+      if (
+        !confirm(
+          "⚠️ 警告 ⚠️\nパスワードが空になっています。\nこのまま保存すると、ファイルの暗号化が解除され「平文」で保存されます。\n\n本当に暗号化を解除して保存しますか？",
+        )
+      ) {
+        document.getElementById("file-password").value = lastSavedPassword; // パスワードを復元して中断
+        isSaving = false;
         return;
       }
-    } else {
-      // API非対応ブラウザ向けのフォールバック保存
-      const blob = new Blob([data], { type: "application/x-sqlite3" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        fileHandle && fileHandle.name ? fileHandle.name : "database.grind";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setDirty(false);
-      const statusEl = document.getElementById("status");
-      statusEl.innerHTML = `<span class="text-green-400">💾</span> データを "${escapeHtml(a.download)}" としてダウンロードしました`;
-      statusEl.className =
-        "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-      statusEl.style.pointerEvents = "auto";
-      showSaveSuccessFeedback();
-      hideStatus();
-      return;
     }
-  }
 
-  // --- File System権限の「サイレント没収」からのリカバリ ---
-  if (fileHandle && !fileHandle.isDummy) {
-    try {
-      const permission = await fileHandle.queryPermission({
-        mode: "readwrite",
-      });
-      if (permission !== "granted") {
-        const request = await fileHandle.requestPermission({
-          mode: "readwrite",
-        });
-        if (request !== "granted") {
-          throw new Error("書き込み権限が拒否されました");
+    // 【セキュリティ修正 2】: 新規パスワード設定時、または変更時の「確認ダイアログ」
+    if (currentPassword !== "" && currentPassword !== lastSavedPassword) {
+      const confirmPw = await requestPasswordPrompt(
+        "🔒 新しいパスワードを設定（または変更）します。\n確認のため、同じパスワードをもう一度入力してください:",
+      );
+      if (confirmPw === null) {
+        isSaving = false;
+        return;
+      } // キャンセル
+      if (confirmPw !== currentPassword) {
+        alert("❌ パスワードが一致しません。保存を中止しました。");
+        isSaving = false;
+        return;
+      }
+    }
+
+    if (currentPassword) {
+      data = await encryptData(data, currentPassword);
+    }
+
+    // 保存成功時の視覚的なタクタイル・フィードバックを共通化
+    const showSaveSuccessFeedback = () => {
+      const saveBtn = document.getElementById("btn-save");
+      if (saveBtn) {
+        const iconSvg = saveBtn.querySelector("svg");
+        if (iconSvg && !iconSvg.hasAttribute("data-animating")) {
+          iconSvg.setAttribute("data-animating", "true");
+          // 万が一の重複を防ぐためハードコードで復元元を指定
+          const originalUse = `<use href="#icon-save"></use>`;
+          iconSvg.innerHTML = `<use href="#icon-sparkles"></use>`;
+          iconSvg.classList.add("text-green-500", "scale-125");
+          saveBtn.classList.add("ring-2", "ring-green-500/20", "bg-green-50");
+
+          setTimeout(() => {
+            iconSvg.innerHTML = originalUse;
+            iconSvg.classList.remove("text-green-500", "scale-125");
+            saveBtn.classList.remove(
+              "ring-2",
+              "ring-green-500/20",
+              "bg-green-50",
+            );
+            iconSvg.removeAttribute("data-animating");
+          }, 1500);
         }
       }
-    } catch (e) {
-      alert(
-        "ファイルの書き込み権限が取得できませんでした。時間経過によりブラウザが権限を取り消した可能性があります。\n\n「複製して保存する (Save As)」をお試しください。",
-      );
-      return; // 権限がなければクラッシュを防ぐため中断
+    };
+
+    if (isSaveAs || !fileHandle || fileHandle.isDummy) {
+      if ("showSaveFilePicker" in window) {
+        try {
+          fileHandle = await window.showSaveFilePicker({
+            types: [
+              {
+                description: "GrindMoney Database",
+                accept: { "application/x-sqlite3": [".grind"] },
+              },
+            ],
+          });
+        } catch (err) {
+          console.log("Save cancelled.", err);
+          return;
+        }
+      } else {
+        // API非対応ブラウザ向けのフォールバック保存
+        const blob = new Blob([data], { type: "application/x-sqlite3" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download =
+          fileHandle && fileHandle.name ? fileHandle.name : "database.grind";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setDirty(false);
+        showToast(
+          `データを "${escapeHtml(a.download)}" としてダウンロードしました`,
+          '<span class="text-green-400">💾</span>',
+        );
+        showSaveSuccessFeedback();
+        lastSavedPassword = currentPassword;
+        return;
+      }
     }
+
+    // --- File System権限の「サイレント没収」からのリカバリ ---
+    if (fileHandle && !fileHandle.isDummy) {
+      try {
+        const permission = await fileHandle.queryPermission({
+          mode: "readwrite",
+        });
+        if (permission !== "granted") {
+          const request = await fileHandle.requestPermission({
+            mode: "readwrite",
+          });
+          if (request !== "granted") {
+            throw new Error("書き込み権限が拒否されました");
+          }
+        }
+      } catch (e) {
+        alert(
+          "ファイルの書き込み権限が取得できませんでした。時間経過によりブラウザが権限を取り消した可能性があります。\n\n「複製して保存する (Save As)」をお試しください。",
+        );
+        return; // 権限がなければクラッシュを防ぐため中断
+      }
+    }
+
+    const writable = await fileHandle.createWritable();
+    await writable.write(data);
+    await writable.close();
+    setDirty(false);
+
+    showToast(
+      `データを "${escapeHtml(fileHandle.name)}" に保存しました`,
+      '<span class="text-green-400">💾</span>',
+    );
+    showSaveSuccessFeedback();
+    lastSavedPassword = currentPassword;
+  } catch (err) {
+    console.error("Save failed:", err);
+  } finally {
+    isSaving = false;
   }
-
-  const writable = await fileHandle.createWritable();
-  await writable.write(data);
-  await writable.close();
-  setDirty(false);
-
-  const statusEl = document.getElementById("status");
-  statusEl.innerHTML = `<span class="text-green-400">💾</span> データを "${escapeHtml(fileHandle.name)}" に保存しました`;
-  statusEl.className =
-    "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-  statusEl.style.pointerEvents = "auto";
-  showSaveSuccessFeedback();
-  hideStatus();
 }
 
 // 5. 【核心部】 ファイル読み込みの共通処理
@@ -1710,7 +2024,8 @@ async function processFileHandle(handle, isDummy = false) {
     let Uints = new Uint8Array(arrayBuffer);
 
     const magic = Uints.slice(0, 8);
-    const isEncrypted = new TextDecoder().decode(magic) === "GRINDENC";
+    const magicStr = new TextDecoder().decode(magic);
+    const isEncrypted = magicStr === "GRINDENC" || magicStr === "GRINDEN2";
 
     if (isEncrypted) {
       let password = document.getElementById("file-password").value;
@@ -1719,10 +2034,12 @@ async function processFileHandle(handle, isDummy = false) {
         try {
           Uints = await decryptData(Uints, password);
           success = true;
-          if (password)
+          if (password) {
             document.getElementById("file-password").value = password;
+            lastSavedPassword = password;
+          }
         } catch (err) {
-          password = prompt(
+          password = await requestPasswordPrompt(
             "ファイルは暗号化されています。解除パスワードを入力してください:",
           );
           if (password === null) return; // キャンセルして処理を中断
@@ -1743,17 +2060,25 @@ async function processFileHandle(handle, isDummy = false) {
     db = newDb;
     migrateDatabase();
 
+    loadSettingsFromDb(); // ファイル固有の設定をUIに反映
+
     // UI更新の前にハンドルをセットして正しいファイル名を反映させる
     fileHandle = handle;
     setDirty(false);
 
-    const statusEl = document.getElementById("status");
-    statusEl.innerHTML = `<span class="text-blue-400">📂</span> ファイル "${escapeHtml(file.name)}" を読み込みました`;
-    statusEl.className =
-      "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-    statusEl.style.pointerEvents = "auto";
-    renderData();
-    hideStatus();
+    showToast(
+      `ファイル "${escapeHtml(file.name)}" を読み込みました`,
+      '<span class="text-blue-400">📂</span>',
+    );
+
+    // 【パフォーマンス対策】ファイル読み込み時も同様にデフォルト期間を最適化
+    const countRes = db.exec("SELECT COUNT(*) FROM records");
+    const recordCount = countRes.length > 0 ? countRes[0].values[0][0] : 0;
+    if (recordCount > 50) {
+      setFiscalYearFilter();
+    } else {
+      renderData();
+    }
   } catch (err) {
     console.log("Open cancelled or failed.", err);
     alert("ファイルの読み込みに失敗しました。");
@@ -1853,20 +2178,24 @@ function exportCSV(format = "yayoi") {
 
   const filterVal = document.getElementById("period-filter")?.value || "all";
   let whereClause = "";
+  let params = [];
 
   if (window.currentActiveMonths) {
     const orConditions = window.currentActiveMonths
-      .map((m) => `c.created_at LIKE '${m}%'`)
+      .map((m) => {
+        params.push(`${m}%`);
+        return "c.created_at LIKE ?";
+      })
       .join(" OR ");
     whereClause = ` AND (${orConditions})`;
   } else if (filterVal !== "all") {
-    const safeFilter = filterVal.replace(/[^0-9-]/g, ""); // 安全のためのサニタイズ
-    whereClause = ` AND c.created_at LIKE '${safeFilter}%'`;
+    whereClause = ` AND c.created_at LIKE ?`;
+    params.push(`${filterVal.replace(/[^0-9-]/g, "")}%`);
   }
 
   let query = `SELECT c.id, COALESCE(p.memo, '') || ' - ' || COALESCE(c.memo, '') AS memo, c.amount, c.created_at, c.account FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL${whereClause} ORDER BY c.id ASC`;
 
-  const res = db.exec(query);
+  const res = db.exec(query, params);
 
   if (res.length === 0) {
     alert("エクスポートするデータがありません。");
@@ -1876,6 +2205,8 @@ function exportCSV(format = "yayoi") {
   // サニタイズ用のヘルパー関数 (CSV Injection / DDE 対策)
   function sanitizeCsvCell(value) {
     let str = value ? value.toString() : "";
+    // メモ欄などの改行をスペースに置換し、CSVフォーマットの崩れを防ぐ
+    str = str.replace(/\r?\n/g, " ");
     // 先頭が危険な文字で始まる場合はシングルクォートを付与して数式解釈を無効化
     if (/^[=+\-@\t\r]/.test(str)) {
       str = "'" + str;
@@ -1883,16 +2214,18 @@ function exportCSV(format = "yayoi") {
     return `"${str.replace(/"/g, '""')}"`;
   }
 
-  let csvContent = "";
+  let csvRows = [];
   if (format === "freee") {
     // freeeはヘッダー行が必要
-    csvContent +=
-      "収支区分,管理番号,発生日,支払期日,取引先,勘定科目,税区分,金額,税計算区分,税額,備考,品目,部門,メモタグ,決済期日,決済口座,決済金額\n";
+    csvRows.push(
+      "収支区分,管理番号,発生日,支払期日,取引先,勘定科目,税区分,金額,税計算区分,税額,備考,品目,部門,メモタグ,決済期日,決済口座,決済金額",
+    );
   } else if (format === "mf") {
-    csvContent +=
-      '"取引No","取引日","借方勘定科目","借方補助科目","借方部門","借方税区分","借方金額","借方税額","貸方勘定科目","貸方補助科目","貸方部門","貸方税区分","貸方金額","貸方税額","摘要","仕訳メモ","タグ"\n';
+    csvRows.push(
+      '"取引No","取引日","借方勘定科目","借方補助科目","借方部門","借方税区分","借方金額","借方税額","貸方勘定科目","貸方補助科目","貸方部門","貸方税区分","貸方金額","貸方税額","摘要","仕訳メモ","タグ"',
+    );
   } else if (format === "generic") {
-    csvContent += '"ID","日付","勘定科目","摘要","金額"\n';
+    csvRows.push('"ID","日付","勘定科目","摘要","金額"');
   }
 
   res[0].values.forEach((row) => {
@@ -2003,9 +2336,10 @@ function exportCSV(format = "yayoi") {
       ];
     }
 
-    csvContent += cols.join(",") + "\n";
+    csvRows.push(cols.join(","));
   });
 
+  const csvContent = csvRows.join("\n") + "\n";
   const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
   const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -2065,7 +2399,7 @@ function updateCSVPreview() {
 
     pendingCSVData = []; // グローバル変数を更新
     let currentLine = [];
-    let currentCell = "";
+    let currentCellChars = [];
     let inQuotes = false;
 
     for (let i = 0; i < text.length; i++) {
@@ -2076,26 +2410,26 @@ function updateCSVPreview() {
       if (i === 0 && char.charCodeAt(0) === 0xfeff) continue;
 
       if (char === '"' && nextChar === '"') {
-        currentCell += '"';
+        currentCellChars.push('"');
         i++; // エスケープされたクオートをスキップ
       } else if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === "," && !inQuotes) {
-        currentLine.push(currentCell);
-        currentCell = "";
+        currentLine.push(currentCellChars.join(""));
+        currentCellChars = [];
       } else if ((char === "\n" || char === "\r") && !inQuotes) {
         if (char === "\r" && nextChar === "\n") i++; // \r\n の対応
-        currentLine.push(currentCell);
+        currentLine.push(currentCellChars.join(""));
         pendingCSVData.push(currentLine);
         currentLine = [];
-        currentCell = "";
+        currentCellChars = [];
       } else {
-        currentCell += char;
+        currentCellChars.push(char);
       }
     }
     // 最後の行をプッシュ
-    if (currentLine.length > 0 || currentCell !== "") {
-      currentLine.push(currentCell);
+    if (currentLine.length > 0 || currentCellChars.length > 0) {
+      currentLine.push(currentCellChars.join(""));
       pendingCSVData.push(currentLine);
     }
     // 最終行の空行を無視
@@ -2129,9 +2463,9 @@ function updateCSVPreview() {
   const mapMemo = document.getElementById("map-memo");
   const mapAmount = document.getElementById("map-amount");
 
-  const maxCols = pendingCSVData.reduce(
-    (max, row) => Math.max(max, row.length),
-    0,
+  const maxCols = Math.min(
+    50,
+    pendingCSVData.reduce((max, row) => Math.max(max, row.length), 0),
   );
   const firstRow = pendingCSVData.length > 0 ? pendingCSVData[0] : [];
 
@@ -2178,9 +2512,9 @@ function renderCSVPreview() {
   const mapMemo = parseInt(document.getElementById("map-memo").value, 10);
   const mapAmount = parseInt(document.getElementById("map-amount").value, 10);
 
-  const maxCols = pendingCSVData.reduce(
-    (max, row) => Math.max(max, row.length),
-    0,
+  const maxCols = Math.min(
+    50,
+    pendingCSVData.reduce((max, row) => Math.max(max, row.length), 0),
   );
 
   // ヘッダーの構築
@@ -2212,11 +2546,15 @@ function renderCSVPreview() {
 
   // プレビューの構築 (安全のためHTMLエスケープを行う)
   previewBody.innerHTML = "";
-  const previewRows = pendingCSVData.slice(0, 4); // 最初の4行をプレビュー
+  const skipRowsInput = document.getElementById("csv-skip-rows");
+  const skipRows = skipRowsInput
+    ? Math.max(0, parseInt(skipRowsInput.value, 10) || 0)
+    : 0;
+  const previewRows = pendingCSVData.slice(skipRows, skipRows + 4); // スキップ行を考慮して最初の4行をプレビュー
   previewRows.forEach((row, rowIndex) => {
     const tr = document.createElement("tr");
     tr.className = rowIndex === 0 ? "bg-slate-50" : "bg-white";
-    let tdHtml = `<td class="px-3 py-2 font-bold text-slate-400 border-r border-slate-200 w-8 text-center">${rowIndex + 1}</td>`;
+    let tdHtml = `<td class="px-3 py-2 font-bold text-slate-400 border-r border-slate-200 w-8 text-center">${skipRows + rowIndex + 1}</td>`;
     for (let i = 0; i < maxCols; i++) {
       const val = row[i] !== undefined ? row[i] : "";
       // 長すぎる文字列は省略して表示し、title属性で全文を確認できるようにする
@@ -2291,6 +2629,24 @@ function executeCSVImport() {
       startIndex + MAX_IMPORT_ROWS,
     );
 
+    let suggestStmt = null;
+    try {
+      suggestStmt = db.prepare(
+        "SELECT account FROM records WHERE parent_id IS NOT NULL AND memo = ? AND account IS NOT NULL AND account != '' ORDER BY id DESC LIMIT 1",
+      );
+    } catch (e) {
+      console.warn("科目サジェストSQLの準備に失敗しました", e);
+    }
+
+    let insertStmt = null;
+    try {
+      insertStmt = db.prepare(
+        "INSERT INTO records (parent_id, memo, amount, created_at, account) VALUES (?, ?, ?, ?, ?)",
+      );
+    } catch (e) {
+      console.warn("インポート用SQLの準備に失敗しました", e);
+    }
+
     for (let i = startIndex; i < endIndex; i++) {
       const cols = dataToImport[i];
       if (cols.length === 0 || cols.every((c) => !c.trim())) continue;
@@ -2346,26 +2702,48 @@ function executeCSVImport() {
           );
         }
 
+        let finalAccountStr = accountStr;
+        if (!finalAccountStr && memo && suggestStmt) {
+          try {
+            suggestStmt.bind([memo]);
+            if (suggestStmt.step()) finalAccountStr = suggestStmt.get()[0];
+          } catch (e) {
+          } finally {
+            suggestStmt.reset();
+          }
+        }
+
+        let finalDateStr = "";
         if (dateStr && !isNaN(parsedDate.getTime())) {
           // タイムゾーンによる日付のズレを防ぐため、ローカル時間のまま手動で文字列化
           const yyyy = parsedDate.getFullYear();
           const mm = String(parsedDate.getMonth() + 1).padStart(2, "0");
           const dd = String(parsedDate.getDate()).padStart(2, "0");
-          const localDateStr = `${yyyy}-${mm}-${dd} 00:00:00`;
-
-          db.run(
-            "INSERT INTO records (parent_id, memo, amount, created_at, account) VALUES (?, ?, ?, ?, ?)",
-            [parentId, memo, amount, localDateStr, accountStr],
-          );
+          finalDateStr = `${yyyy}-${mm}-${dd} 00:00:00`;
         } else {
-          db.run(
-            "INSERT INTO records (parent_id, memo, amount, account) VALUES (?, ?, ?, ?)",
-            [parentId, memo, amount, accountStr],
-          );
+          const today = new Date();
+          finalDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
         }
-        successCount++;
+
+        if (insertStmt) {
+          try {
+            insertStmt.run([
+              parentId,
+              memo,
+              amount,
+              finalDateStr,
+              finalAccountStr,
+            ]);
+            successCount++;
+          } catch (e) {
+            console.warn(e);
+          }
+        }
       }
     }
+
+    if (suggestStmt) suggestStmt.free();
+    if (insertStmt) insertStmt.free();
 
     if (successCount === 0) {
       db.run("DELETE FROM records WHERE id = ?", [parentId]);
@@ -2408,13 +2786,40 @@ GrindMoneyが持っているデータ仕様は以下の通りです：
   navigator.clipboard
     .writeText(promptText)
     .then(() => {
-      alert(
-        "✅ AI用のプロンプトをクリップボードにコピーしました！\n\nChatGPTやClaudeに貼り付けて、変換したい会計ソフトのサンプルCSVを渡してください。",
-      );
+      showToast("AI用プロンプトをコピーしました", "📋");
     })
     .catch((err) => {
       console.error("コピーに失敗しました", err);
     });
+}
+
+// 8.5 データ一覧を Markdown 形式でコピーする機能
+function copyAsMarkdown() {
+  if (!db) return;
+  // 全データを日付の降順で取得
+  const res = db.exec(
+    "SELECT created_at, account, memo, amount FROM records WHERE parent_id IS NOT NULL ORDER BY created_at DESC",
+  );
+  if (res.length === 0) {
+    alert("コピーするデータがありません。");
+    return;
+  }
+
+  let markdown = "## 出力データ (Markdown)\n\n";
+  res[0].values.forEach((row) => {
+    const date = row[0] ? row[0].split(" ")[0] : "日付なし";
+    const account = row[1] || "未分類";
+    const memo = row[2] || "名称未設定";
+
+    markdown += `- **${date}** [${account}] ${memo}\n`;
+  });
+
+  navigator.clipboard
+    .writeText(markdown)
+    .then(() => {
+      showToast("データを Markdown でコピーしました", "📋");
+    })
+    .catch((err) => console.error("コピーに失敗しました", err));
 }
 
 // 9. PWAインストールプロンプトの制御
@@ -2499,6 +2904,12 @@ const commandsList = [
     title: "AI用プロンプトをコピー (AI)",
     action: copyAIPrompt,
   },
+  {
+    id: "markdown",
+    icon: '<svg class="w-5 h-5"><use href="#icon-copy"></use></svg>',
+    title: "Markdownとしてコピー (GrindSite用)",
+    action: copyAsMarkdown,
+  },
 ];
 
 function toggleCommandPalette() {
@@ -2544,12 +2955,13 @@ function getDynamicCommands() {
             id: `tpl_delete_${row[0]}`,
             icon: '<svg class="w-5 h-5 text-red-400"><use href="#icon-trash"></use></svg>',
             title: `<span class="text-slate-400">[削除] ${escapeHtml(row[1])}</span>`,
+            keepOpen: true, // パレットを閉じない設定
             action: () => {
               if (confirm(`テンプレート「${row[1]}」を削除しますか？`)) {
                 db.run("DELETE FROM templates WHERE id = ?", [row[0]]);
                 setDirty(true);
-                // 削除後はもう一度パレットを開き直して更新を反映
-                setTimeout(toggleCommandPalette, 10);
+                // パレットを閉じずにリストだけを再描画して更新を反映
+                renderCommandList(document.getElementById("cmd-input").value);
               }
             },
           });
@@ -2577,12 +2989,10 @@ function getFilteredCommands(query) {
         title: `= ${calcResult.toLocaleString("ja-JP")} <span class="text-xs text-slate-400 ml-2">(Enterでコピー)</span>`,
         action: () => {
           navigator.clipboard.writeText(calcResult.toString());
-          const statusEl = document.getElementById("status");
-          statusEl.innerHTML = `<span class="text-green-400">📋</span> ${calcResult.toLocaleString("ja-JP")} をコピーしました`;
-          statusEl.className =
-            "fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-          statusEl.style.pointerEvents = "auto";
-          hideStatus();
+          showToast(
+            `${calcResult.toLocaleString("ja-JP")} をコピーしました`,
+            '<span class="text-green-400">📋</span>',
+          );
         },
       });
     }
@@ -2604,7 +3014,9 @@ function renderCommandList(query = "") {
     div.className = `px-4 py-3 my-1 flex items-center gap-3 rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 text-primary" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
     div.innerHTML = `<span class="text-xl">${cmd.icon}</span><span class="font-medium tracking-wide">${cmd.title}</span>`;
     div.onclick = () => {
-      toggleCommandPalette();
+      if (!cmd.keepOpen) {
+        toggleCommandPalette();
+      }
       cmd.action();
     };
     list.appendChild(div);
@@ -2681,9 +3093,36 @@ document.addEventListener("keydown", (e) => {
       renderCommandList(input.value);
     } else if (e.key === "Enter" && filtered[selectedCommandIndex]) {
       e.preventDefault();
-      toggleCommandPalette();
-      filtered[selectedCommandIndex].action();
+      const cmd = filtered[selectedCommandIndex];
+      if (!cmd.keepOpen) {
+        toggleCommandPalette();
+      }
+      cmd.action();
     }
+  }
+});
+
+// --- TOC（目次）の絞り込み機能 ---
+function applyTocFilter(query) {
+  const q = query.toLowerCase();
+  const tocItems = document.querySelectorAll("#toc-list a.toc-item");
+
+  tocItems.forEach((item) => {
+    const text = item.textContent.toLowerCase();
+    if (text.includes(q)) {
+      item.style.display = "block";
+    } else {
+      item.style.display = "none";
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const tocFilter = document.getElementById("toc-filter");
+  if (tocFilter) {
+    tocFilter.addEventListener("input", (e) => {
+      applyTocFilter(e.target.value);
+    });
   }
 });
 
@@ -2914,11 +3353,7 @@ const accountDictionaries = {
 function changeAccountDict() {
   const select = document.getElementById("dict-select");
   const dictKey = select.value;
-  try {
-    localStorage.setItem("accountDict", dictKey);
-  } catch (e) {
-    console.warn("ローカルストレージへの保存がブロックされました");
-  }
+  setDbSetting("accountDict", dictKey);
   renderAccountSuggestions(dictKey);
 }
 
@@ -2936,7 +3371,7 @@ function renderAccountSuggestions(dictKey) {
 }
 
 function loadCustomDict() {
-  const savedDict = localStorage.getItem("customAccountDict");
+  const savedDict = getDbSetting("customAccountDict");
   if (savedDict) {
     try {
       const parsed = JSON.parse(savedDict);
@@ -2970,17 +3405,7 @@ function loadCustomDict() {
 }
 
 function saveCustomDict() {
-  try {
-    localStorage.setItem(
-      "customAccountDict",
-      JSON.stringify(customAccountDict),
-    );
-  } catch (e) {
-    alert(
-      "ブラウザの保存容量がいっぱいで、辞書を保存できませんでした。不要なデータを削除してください。",
-    );
-    return false;
-  }
+  setDbSetting("customAccountDict", JSON.stringify(customAccountDict));
   accountDictionaries.custom = customAccountDict
     .filter((i) => !i.hidden)
     .map((i) => i.name);
@@ -3070,6 +3495,10 @@ function renderCustomDictEditor() {
         <button onclick="toggleCustomAccountHidden(${index})" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0" title="${title}">
           <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
         </button>
+        <!-- 削除ボタン -->
+        <button onclick="deleteCustomDictItem(${index})" class="text-slate-300 hover:text-red-500 transition-colors shrink-0 ml-1" title="完全に削除する">
+          <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
+        </button>
       </div>
     `;
     // Drag and Drop イベント
@@ -3085,17 +3514,21 @@ function renderCustomDictEditor() {
     li.addEventListener("dragover", (e) => e.preventDefault());
     li.addEventListener("drop", (e) => {
       e.preventDefault();
-      let droppedOnIndex = index;
+      if (typeof draggedItemIndex !== "number" || draggedItemIndex === null)
+        return;
 
-      if (draggedItemIndex === droppedOnIndex) return; // 同じ場所なら何もしない
+      let droppedOnIndex = index;
+      if (draggedItemIndex === droppedOnIndex) return;
 
       const [reorderedItem] = customAccountDict.splice(draggedItemIndex, 1);
       customAccountDict.splice(droppedOnIndex, 0, reorderedItem);
+      draggedItemIndex = null;
       renderCustomDictEditor();
     });
-    li.addEventListener("dragend", (e) =>
-      e.target.classList.remove("opacity-30"),
-    );
+    li.addEventListener("dragend", (e) => {
+      e.target.classList.remove("opacity-30");
+      draggedItemIndex = null;
+    });
     list.appendChild(li);
   });
 }
@@ -3107,6 +3540,17 @@ function moveCustomDictItem(index, direction) {
   const item = customAccountDict.splice(index, 1)[0];
   customAccountDict.splice(index + direction, 0, item);
   renderCustomDictEditor();
+}
+
+function deleteCustomDictItem(index) {
+  if (
+    confirm(
+      `「${customAccountDict[index].name}」を辞書から完全に削除しますか？`,
+    )
+  ) {
+    customAccountDict.splice(index, 1);
+    renderCustomDictEditor();
+  }
 }
 
 function toggleCustomAccountHidden(index) {
@@ -3171,24 +3615,25 @@ if (!window.isSecureContext) {
   alert(
     "⚠️ セキュリティ警告 ⚠️\n\n現在のアクセス環境 (HTTP) では、ブラウザのセキュリティ制限によりファイルの読み書きや暗号化機能がブロックされます。\n\nGrindMoneyを正常に動作させるには、必ず「HTTPS」環境にアップロードするか、「localhost」で実行してください。",
   );
-  const statusEl = document.getElementById("status");
-  if (statusEl) {
-    statusEl.innerHTML = `<span class="text-red-400">⚠️</span> エラー: HTTPS環境またはlocalhostでの実行が必要です`;
-    statusEl.className =
-      "fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-900/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-bold shadow-xl border border-red-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
-    statusEl.style.pointerEvents = "auto";
-  }
+  showToast(
+    "エラー: HTTPS環境またはlocalhostでの実行が必要です",
+    '<span class="text-red-400">⚠️</span>',
+    "warning",
+  );
 } else {
   // アプリ起動時にSQLiteをロード
   initSQLite();
 }
 
-loadCustomDict();
-const savedDict = localStorage.getItem("accountDict") || "custom";
-const dictSelect = document.getElementById("dict-select");
-if (dictSelect) dictSelect.value = savedDict;
-renderAccountSuggestions(savedDict);
-updateFiscalYearButton();
+// --- ファイル固有の設定を読み込んでUIに反映する ---
+function loadSettingsFromDb() {
+  loadCustomDict();
+  const savedDict = getDbSetting("accountDict", "custom");
+  const dictSelect = document.getElementById("dict-select");
+  if (dictSelect) dictSelect.value = savedDict;
+  renderAccountSuggestions(savedDict);
+  updateFiscalYearButton();
+}
 
 // ページ離脱時の警告（データ未保存防止）
 window.addEventListener("beforeunload", (e) => {
@@ -3347,6 +3792,15 @@ if (shortcutEl) {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && isDirty && db) {
     try {
+      // 【追加】パスワードが設定されている場合は、平文でのバックアップを絶対に禁止する
+      const currentPassword = document.getElementById("file-password").value;
+      if (currentPassword) {
+        console.warn(
+          "暗号化が有効なため、情報漏洩を防ぐ目的で平文の緊急バックアップを破棄しました。",
+        );
+        return;
+      }
+
       // 簡易的なサイズチェック（SQLiteのページ数などで推定）
       const pageSizeRes = db.exec("PRAGMA page_size");
       const pageCountRes = db.exec("PRAGMA page_count");
@@ -3361,20 +3815,19 @@ document.addEventListener("visibilitychange", () => {
         }
       }
 
-      const password = document.getElementById("file-password").value;
       const data = db.export();
-      if (password) {
-        encryptData(data, password)
-          .then((encData) => {
-            saveDraft(encData).catch((e) =>
-              console.error("Emergency save failed", e),
-            );
-          })
-          .catch((e) => console.error("Emergency encrypt failed", e));
-      } else {
-        // ページが隠れる瞬間に、タイマーを待たずに同期的にIndexedDBへ叩き込む
-        saveDraft(data).catch((e) => console.error("Emergency save failed", e));
-      }
+
+      // 【セキュリティ修正 3】: タブ終了時の Race Condition キル対策
+      // 非同期の暗号化（encryptData）を待つとブラウザにプロセスを殺されてデータが消失するため、
+      // 終了時の緊急退避に限っては、サンドボックスで保護されたIndexedDBへ「同期的」に即座に叩き込む。
+      const tx = indexedDB.open(DB_NAME, 1);
+      tx.onsuccess = (e) => {
+        const idb = e.target.result;
+        const store = idb
+          .transaction(STORE_NAME, "readwrite")
+          .objectStore(STORE_NAME);
+        store.put(data, "latest_draft");
+      };
     } catch (e) {
       console.error("Emergency save error", e);
     }
