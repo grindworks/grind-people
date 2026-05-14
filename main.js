@@ -1802,6 +1802,12 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   const todayStr = `${yyyy}-${mm}-${dd}`;
   let defaultDate = lastUsedDates[block.id] || todayStr;
 
+  // 年度を計算
+  const startMonth = parseInt(getDbSetting("fiscalMonth", "4"), 10);
+  let currentFiscalYear = yyyy;
+  if (today.getMonth() + 1 < startMonth) {
+    currentFiscalYear--;
+  }
   // 🎯 フィルター期間外によるリセット（アクティブ消失）を防ぐためのスマート補正
   if (window.currentActiveMonths && window.currentActiveMonths.length > 0) {
     const isInside = window.currentActiveMonths.some((m) =>
@@ -1828,6 +1834,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   let itemsHtml = "";
   block.children.forEach((item) => {
     let dateDisp = "";
+    let badgeHtml = "";
     let yyyy = today.getFullYear();
     if (item.created_at) {
       // 文字列から直接日付をパースして表示（タイムゾーン安全）
@@ -1837,7 +1844,19 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         yyyy = escapeHtml(parts[0]);
         const imm = escapeHtml(parts[1]);
         const idd = escapeHtml(parts[2]);
-        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="text-xs text-slate-500 font-mono mr-2 sm:mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-blue-200 cursor-text hover:bg-slate-200 transition-colors" title="クリックして日付を編集">${imm}/${idd}</span>`;
+
+        // 年度判定バッジの生成
+        const itemYear = parseInt(yyyy, 10);
+        const itemMonth = parseInt(imm, 10);
+        let itemFiscalYear = itemYear;
+        if (itemMonth < startMonth) itemFiscalYear--;
+
+        const diff = currentFiscalYear - itemFiscalYear;
+        if (diff === 1) {
+          badgeHtml = `<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 mr-1.5 shrink-0 select-none" title="前年度の記録です">前期</span>`;
+        } else if (diff >= 2) {
+          badgeHtml = `<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 mr-1.5 shrink-0 select-none" title="前々期以前の記録です">過年度</span>`;
+        }
 
         let dateClasses =
           "text-xs font-mono mr-2 sm:mr-3 border px-1.5 py-0.5 rounded outline-none focus:ring-2 cursor-text transition-colors";
@@ -1851,7 +1870,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
             " text-slate-500 bg-slate-100 border-slate-200 focus:ring-blue-200 hover:bg-slate-200";
         }
 
-        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}else if(event.key==='Tab' && !event.shiftKey){event.preventDefault();this.blur();requestAnimationFrame(()=>{const amt=document.querySelector('[data-id=\\'${item.id}\\'][data-field=\\'amount\\']');if(amt){amt.focus();window.getSelection().selectAllChildren(amt);}})}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="${dateClasses}" title="${dateTitle}">${imm}/${idd}</span>`;
+        dateDisp = `${badgeHtml}<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}else if(event.key==='Tab' && !event.shiftKey){event.preventDefault();this.blur();requestAnimationFrame(()=>{const amt=document.querySelector('[data-id=\\'${item.id}\\'][data-field=\\'amount\\']');if(amt){amt.focus();window.getSelection().selectAllChildren(amt);}})}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="${dateClasses}" title="${dateTitle}">${imm}/${idd}</span>`;
       }
     }
 
@@ -1883,6 +1902,30 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   const op = isCollapsed ? "0" : "1";
   const iconRotation = isCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
 
+  // ブロック全体が前期・過年度の場合、タイトル横にもバッジを出す
+  let blockBadgeHtml = "";
+  if (block.children.length > 0) {
+    let diffs = block.children.map((item) => {
+      if (!item.created_at) return 0;
+      const parts = item.created_at.split(" ")[0].split("-");
+      if (parts.length !== 3) return 0;
+      const itemYear = parseInt(parts[0], 10);
+      const itemMonth = parseInt(parts[1], 10);
+      let itemFiscalYear = itemYear;
+      if (itemMonth < startMonth) itemFiscalYear--;
+      return currentFiscalYear - itemFiscalYear;
+    });
+    const validDiffs = diffs.filter((d) => !isNaN(d));
+    if (validDiffs.length > 0) {
+      const minDiff = Math.min(...validDiffs);
+      if (minDiff === 1) {
+        blockBadgeHtml = `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 ml-2 shrink-0 select-none" title="このブロックは前年度のデータです">前期</span>`;
+      } else if (minDiff >= 2) {
+        blockBadgeHtml = `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 ml-2 shrink-0 select-none" title="このブロックは前々期以前のデータです">過年度</span>`;
+      }
+    }
+  }
+
   let dateInputClass =
     "item-date border-0 focus:ring-0 p-0 text-xs w-[110px] text-center outline-none cursor-pointer transition-colors";
   if (defaultDate > todayStr) {
@@ -1900,6 +1943,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
       <div class="flex items-center gap-3 overflow-hidden">
         <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
         <h2 data-id="${block.id}" data-field="memo" contenteditable="true" oninput="setDirty(true)" onpaste="handlePlainTextPaste(event)" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-20 empty:bg-slate-100 empty:after:content-['✎_タイトル未入力'] empty:after:text-slate-400 empty:after:text-sm empty:after:font-normal">${escapeHtml(block.memo)}</h2>
+        ${blockBadgeHtml}
       </div>
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal.toLocaleString("ja-JP")}</span> <span class="text-slate-400 text-sm font-sans">円</span></div>
