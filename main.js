@@ -1948,6 +1948,9 @@ function updateOrCreateBlockElement(block, existingEl = null) {
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal.toLocaleString("ja-JP")}</span> <span class="text-slate-400 text-sm font-sans">円</span></div>
         <div class="flex items-center pl-4 border-l border-slate-200/50 ml-4 shrink-0 h-8">
+          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="日付順に並べ替え" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all cursor-pointer mr-1" title="日付の古い順に並べ替える">
+            <svg class="w-5 h-5"><use href="#icon-sort"></use></svg>
+          </button>
           <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="ブロックを削除" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="ブロックを丸ごと削除">
             <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
           </button>
@@ -2148,6 +2151,51 @@ function deleteRecord(id) {
 
   setDirty(true);
   renderData();
+}
+
+// 手動でブロック内の明細を日付順に並べ替える
+function sortBlockByDate(blockId) {
+  if (!db) return;
+  if (
+    !confirm(
+      "このブロック内の明細を「日付が古い順」に並べ替えますか？\n（同じ日付の場合は入力した順になります）",
+    )
+  )
+    return;
+
+  let stmt;
+  let items = [];
+  try {
+    stmt = db.prepare("SELECT id, created_at FROM records WHERE parent_id = ?");
+    stmt.bind([blockId]);
+    while (stmt.step()) {
+      const [id, created_at] = stmt.get();
+      items.push({ id, created_at: created_at || "" });
+    }
+  } finally {
+    if (stmt) stmt.free();
+  }
+
+  items.sort((a, b) => {
+    if (a.created_at < b.created_at) return -1;
+    if (a.created_at > b.created_at) return 1;
+    return a.id - b.id; // 日付が同じなら元の順序を維持
+  });
+
+  try {
+    const updateStmt = db.prepare(
+      "UPDATE records SET sort_order = ? WHERE id = ?",
+    );
+    items.forEach((item, index) => {
+      updateStmt.run([index, item.id]);
+    });
+    updateStmt.free();
+    setDirty(true);
+    renderData();
+    showToast("日付順に並べ替えました", "🧹");
+  } catch (e) {
+    console.error("並べ替えに失敗しました", e);
+  }
 }
 
 // 3.6 明細の複製
