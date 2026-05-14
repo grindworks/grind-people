@@ -13,6 +13,8 @@ let statusTimeoutId = null; // ステータスバー通知のタイマーID
 let isSaving = false; // 保存処理の多重実行防止フラグ
 let lastSavedPassword = ""; // パスワードの変更・解除検知用
 
+const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
 let customAccountDict = []; // カスタム科目辞書の配列
 
 // --- 設定保存用ユーティリティ (SQLiteベース) ---
@@ -1806,7 +1808,12 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0">
           <span data-id="${item.id}" data-field="amount" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'amount', this.innerText, this)" class="font-medium tabular-nums tracking-tight text-slate-900 outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-8 empty:bg-slate-100 empty:after:content-['0'] empty:after:text-slate-400 empty:after:text-xs empty:after:font-sans">${item.amount !== null && item.amount !== "" && item.amount !== undefined ? item.amount.toLocaleString("ja-JP") : ""}</span><span class="text-slate-400 text-xs font-sans">円</span>
-          <button onclick="deleteRecord(${item.id})" aria-label="削除" class="text-slate-300 hover:text-red-500 md:opacity-0 md:group-hover/item:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-opacity text-xl leading-none -mt-0.5" title="削除">&times;</button>
+          <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button onclick="duplicateRecord(${item.id})" aria-label="複製" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-1 transition-colors" title="複製">
+              <svg class="w-4 h-4"><use href="#icon-copy"></use></svg>
+            </button>
+            <button onclick="deleteRecord(${item.id})" aria-label="削除" class="text-slate-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-colors text-xl leading-none px-1 py-0.5 -mt-0.5" title="削除">&times;</button>
+          </div>
         </div>
       </div>
     `;
@@ -2030,6 +2037,38 @@ function deleteRecord(id) {
 
   setDirty(true);
   renderData();
+}
+
+// 3.6 明細の複製
+function duplicateRecord(id) {
+  if (!db) return;
+
+  let stmt;
+  let insertStmt;
+  try {
+    stmt = db.prepare(
+      "SELECT parent_id, memo, amount, account, created_at FROM records WHERE id = ?",
+    );
+    stmt.bind([id]);
+    if (stmt.step()) {
+      const [parent_id, memo, amount, account, created_at] = stmt.get();
+
+      insertStmt = db.prepare(
+        "INSERT INTO records (parent_id, memo, amount, account, created_at) VALUES (?, ?, ?, ?, ?)",
+      );
+      insertStmt.run([parent_id, memo, amount, account, created_at]);
+
+      setDirty(true);
+      renderData(parent_id);
+
+      showToast("明細を複製しました", '<span class="text-green-400">📋</span>');
+    }
+  } catch (e) {
+    console.error("Duplicate failed:", e);
+  } finally {
+    if (stmt) stmt.free();
+    if (insertStmt) insertStmt.free();
+  }
 }
 
 // 4. 【核心部】 File System Access API を使った保存
@@ -3128,24 +3167,28 @@ const commandsList = [
     id: "save",
     icon: '<svg class="w-5 h-5"><use href="#icon-save"></use></svg>',
     title: "データを保存する (Save)",
+    shortcut: isMac ? "⌘S" : "Ctrl+S",
     action: () => saveGrindFile(),
   },
   {
     id: "open",
     icon: '<svg class="w-5 h-5"><use href="#icon-folder"></use></svg>',
     title: "ファイルを開く (Open)",
+    shortcut: isMac ? "⌘O" : "Ctrl+O",
     action: () => loadGrindFile(),
   },
   {
     id: "saveas",
     icon: '<svg class="w-5 h-5"><use href="#icon-copy"></use></svg>',
     title: "複製して保存する (Save As)",
+    shortcut: isMac ? "⇧⌘S" : "Ctrl+Shift+S",
     action: () => saveGrindFile(true),
   },
   {
     id: "new",
     icon: '<svg class="w-5 h-5"><use href="#icon-sparkles"></use></svg>',
     title: "新しいブロックを作成する (New)",
+    shortcut: isMac ? "⌥N" : "Alt+N",
     action: () => document.getElementById("new-block-memo").focus(),
   },
   {
@@ -3345,8 +3388,15 @@ function renderCommandList(query = "") {
   filtered.forEach((cmd, i) => {
     const div = document.createElement("div");
     const isSelected = i === selectedCommandIndex;
-    div.className = `px-4 py-3 my-1 flex items-center gap-3 rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 text-primary" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
-    div.innerHTML = `<span class="text-xl">${cmd.icon}</span><span class="font-medium tracking-wide">${cmd.title}</span>`;
+    div.className = `px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 text-primary" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
+
+    let innerHtml = `<div class="flex items-center gap-3"><span class="text-xl">${cmd.icon}</span><span class="font-medium tracking-wide">${cmd.title}</span></div>`;
+    if (cmd.shortcut) {
+      // コマンドが選択されている時はバッジの色も少し強調する
+      innerHtml += `<kbd class="font-mono text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm ${isSelected ? "text-primary border-primary/20" : "text-slate-400"}">${cmd.shortcut}</kbd>`;
+    }
+    div.innerHTML = innerHtml;
+
     div.onclick = () => {
       if (!cmd.keepOpen) {
         toggleCommandPalette();
@@ -3371,13 +3421,39 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // 上書き保存 (Cmd+S / Ctrl+S)
+  // 新規ブロック作成 (Option+N / Alt+N)
+  if (
+    e.altKey &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    (key === "n" || key === "ｎ" || e.code === "KeyN")
+  ) {
+    e.preventDefault();
+    document.getElementById("new-block-memo").focus();
+    return;
+  }
+
+  // 上書き保存 (Cmd+S / Ctrl+S) & 複製保存 (Cmd+Shift+S / Ctrl+Shift+S)
   if (
     (e.metaKey || e.ctrlKey) &&
     (key === "s" || key === "ｓ" || e.code === "KeyS")
   ) {
     e.preventDefault();
-    saveGrindFile();
+    if (e.shiftKey) {
+      saveGrindFile(true); // Save As
+    } else {
+      saveGrindFile(); // Save
+    }
+    return;
+  }
+
+  // ファイルを開く (Cmd+O / Ctrl+O)
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    (key === "o" || key === "ｏ" || e.code === "KeyO")
+  ) {
+    e.preventDefault();
+    loadGrindFile();
     return;
   }
 
@@ -4032,11 +4108,18 @@ document.addEventListener("drop", async (e) => {
 });
 
 // OSを判定してショートカットキーのUI表示を最適化
-const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
 const shortcutEl = document.getElementById("cmd-shortcut-key");
 if (shortcutEl) {
   shortcutEl.textContent = isMac ? "⌘K" : "Ctrl+K";
 }
+
+const btnSaveTooltip = document.getElementById("btn-save");
+if (btnSaveTooltip) btnSaveTooltip.title = `保存 (${isMac ? "⌘S" : "Ctrl+S"})`;
+
+const btnOpenTooltip = document.querySelector(
+  'button[onclick="loadGrindFile()"]',
+);
+if (btnOpenTooltip) btnOpenTooltip.title = `開く (${isMac ? "⌘O" : "Ctrl+O"})`;
 
 // --- 最後の砦：タブ閉じ/バックグラウンド移行時の強制バックアップ ---
 document.addEventListener("visibilitychange", () => {
