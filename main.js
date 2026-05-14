@@ -710,6 +710,19 @@ function addItem(parentId, memo, amount, dateStr, accountStr) {
   if (parentId) {
     if (dateStr) lastUsedDates[parentId] = dateStr;
   }
+
+  if (dateStr) {
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (dateStr > todayStr) {
+      showToast(
+        "未来の日付で登録しました",
+        '<span class="text-orange-400">⚠️</span>',
+        "warning",
+      );
+    }
+  }
+
   insertRecord(parentId, safeMemo, amount, dateStr, accountStr);
 
   // フィルター外の日付を追加した場合、自動で「すべての期間」に表示を戻す
@@ -901,6 +914,17 @@ function updateRecord(id, field, newValue, element) {
         return;
       }
     }
+
+    // 未来の日付チェック
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
+    if (val > todayStr) {
+      showToast(
+        "未来の日付が入力されました",
+        '<span class="text-orange-400">⚠️</span>',
+        "warning",
+      );
+    }
   }
 
   // 変更があるかチェック (内容が変わっていない場合は何もしない)
@@ -1021,6 +1045,22 @@ function adjustDate(btn, days) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   dateInput.value = `${yyyy}-${mm}-${dd}`;
+
+  if (typeof checkFutureDate === "function") checkFutureDate(dateInput);
+  setDirty(true);
+}
+
+// 未来の日付入力時に警告色にする
+function checkFutureDate(input) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  if (input.value > todayStr) {
+    input.classList.add("text-red-600", "font-bold", "bg-red-50", "rounded");
+    input.classList.remove("text-slate-600", "bg-transparent");
+  } else {
+    input.classList.add("text-slate-600", "bg-transparent");
+    input.classList.remove("text-red-600", "font-bold", "bg-red-50", "rounded");
+  }
 }
 
 // ハッカー的カウントアップ演出
@@ -1793,6 +1833,20 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         const imm = escapeHtml(parts[1]);
         const idd = escapeHtml(parts[2]);
         dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="text-xs text-slate-500 font-mono mr-2 sm:mr-3 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded outline-none focus:ring-2 focus:ring-blue-200 cursor-text hover:bg-slate-200 transition-colors" title="クリックして日付を編集">${imm}/${idd}</span>`;
+
+        let dateClasses =
+          "text-xs font-mono mr-2 sm:mr-3 border px-1.5 py-0.5 rounded outline-none focus:ring-2 cursor-text transition-colors";
+        let dateTitle = "クリックして日付を編集";
+        if (dStr > todayStr) {
+          dateClasses +=
+            " text-red-600 bg-red-50 border-red-200 focus:ring-red-300 hover:bg-red-100 font-bold";
+          dateTitle = "未来の日付です（クリックして編集）";
+        } else {
+          dateClasses +=
+            " text-slate-500 bg-slate-100 border-slate-200 focus:ring-blue-200 hover:bg-slate-200";
+        }
+
+        dateDisp = `<span data-id="${item.id}" data-field="created_at" data-year="${yyyy}" contenteditable="true" oninput="setDirty(true)" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'created_at', this.innerText, this)" class="${dateClasses}" title="${dateTitle}">${imm}/${idd}</span>`;
       }
     }
 
@@ -1823,6 +1877,14 @@ function updateOrCreateBlockElement(block, existingEl = null) {
   const maxH = isCollapsed ? "0px" : "99999px";
   const op = isCollapsed ? "0" : "1";
   const iconRotation = isCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
+
+  let dateInputClass =
+    "item-date border-0 focus:ring-0 p-0 text-xs w-[110px] text-center outline-none cursor-pointer transition-colors";
+  if (defaultDate > todayStr) {
+    dateInputClass += " text-red-600 font-bold bg-red-50 rounded";
+  } else {
+    dateInputClass += " text-slate-600 bg-transparent";
+  }
 
   blockEl.innerHTML = `
     <button onclick="event.stopPropagation(); saveTemplate(${block.id})" class="absolute -top-3 -left-3 opacity-100 md:opacity-0 group-hover/block:opacity-100 bg-white border border-slate-200 text-slate-400 hover:text-primary hover:border-primary/50 hover:shadow-[0_0_15px_rgba(15,98,254,0.3)] hover:scale-110 p-2 rounded-xl transition-all duration-300 cursor-pointer flex items-center justify-center z-10" title="このブロックをテンプレートとして保存">
@@ -1860,6 +1922,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
           <div class="flex items-center bg-slate-50 rounded-md px-1 py-1 border border-slate-200 transition-colors">
             <button type="button" onclick="adjustDate(this, -1)" aria-label="1日戻す" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors touch-manipulation" title="-1日">-</button>
             <input type="date" class="item-date bg-transparent border-0 focus:ring-0 p-0 text-slate-600 text-xs w-[110px] text-center outline-none cursor-pointer" value="${defaultDate}" oninput="setDirty(true)">
+            <input type="date" class="${dateInputClass}" value="${defaultDate}" oninput="setDirty(true); checkFutureDate(this)">
             <button type="button" onclick="adjustDate(this, 1)" aria-label="1日進める" class="text-slate-400 hover:text-slate-800 w-8 h-8 flex items-center justify-center font-bold cursor-pointer outline-none transition-colors touch-manipulation" title="+1日">+</button>
           </div>
           <input type="text" placeholder="科目(任意)" value="" list="account-suggestions" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-account bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-16 sm:w-20 text-sm outline-none text-center">
@@ -1867,7 +1930,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 sm:pl-0 mt-2 sm:mt-0">
           <input type="text" placeholder="明細を追加..." list="memo-suggestions" oninput="setDirty(true)" onblur="autoSuggestAccount(this)" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-amount').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-[100px]">
-          <input type="text" inputmode="decimal" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right tabular-nums tracking-tight text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && event.isComposing){ event.stopPropagation(); }">
+          <input type="text" inputmode="decimal" placeholder="金額 (数式OK)" class="item-amount bg-transparent border-0 focus:ring-0 p-0 text-right tabular-nums tracking-tight text-slate-900 placeholder-slate-400 w-24 sm:w-32 text-sm outline-none" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && event.isComposing){ event.stopPropagation(); } else if(event.key==='Tab' && !event.shiftKey){ event.preventDefault(); this.closest('form').dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); }">
         </div>
         <button type="submit" class="hidden">追加</button>
       </form>
@@ -2058,10 +2121,25 @@ function duplicateRecord(id) {
       );
       insertStmt.run([parent_id, memo, amount, account, created_at]);
 
+      // 新しく挿入されたレコードのIDを取得
+      const res = db.exec("SELECT last_insert_rowid()");
+      const newId = res[0].values[0][0];
+
       setDirty(true);
       renderData(parent_id);
 
       showToast("明細を複製しました", '<span class="text-green-400">📋</span>');
+
+      // 画面の再描画が終わった直後に、新しい行の日付にフォーカスを当てて全選択する
+      requestAnimationFrame(() => {
+        const newDateEl = document.querySelector(
+          `span[data-id="${newId}"][data-field="created_at"]`,
+        );
+        if (newDateEl) {
+          newDateEl.focus();
+          window.getSelection().selectAllChildren(newDateEl);
+        }
+      });
     }
   } catch (e) {
     console.error("Duplicate failed:", e);
