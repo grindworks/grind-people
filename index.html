@@ -6,6 +6,17 @@
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>GrindMoney - Serverless Edition</title>
+
+  <!-- OSのステータスバー色をテーマに合わせる -->
+  <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
+
+  <!-- Google Fonts (Inter + Noto Sans JP) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+JP:wght@300;400;500;700;800;900&display=swap"
+    rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css">
 
   <!-- iOS PWA用 メタタグ -->
@@ -24,7 +35,7 @@
 </head>
 
 <body
-  class="bg-slate-50 text-slate-900 font-sans min-h-screen antialiased selection:bg-primary/30 transition-colors duration-300 overscroll-y-none"
+  class="bg-slate-50 dark:bg-dark-bg text-slate-900 dark:text-dark-text font-sans min-h-screen antialiased selection:bg-primary/30 transition-colors duration-300 overscroll-y-none"
   style="scrollbar-gutter: stable; overscroll-behavior-y: none;">
 
   <!-- SVG Sprite (Heroicons) -->
@@ -103,6 +114,14 @@
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0l-3.75-3.75M17.25 21L21 17.25" />
       </symbol>
+      <symbol id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+      </symbol>
+      <symbol id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+      </symbol>
     </defs>
   </svg>
 
@@ -112,16 +131,16 @@
     <!-- 左側 目次カラム (TOC) -->
     <div class="hidden xl:block w-56 shrink-0 pt-32 relative">
       <nav id="toc-container"
-        class="sticky top-24 space-y-1 overflow-y-auto max-h-[80vh] text-sm text-slate-500 scrollbar-hide px-4">
-        <div class="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 transition-colors">
-          <div class="font-bold text-slate-600 mb-2 px-2 uppercase text-[10px] tracking-widest">
+        class="sticky top-24 space-y-1 overflow-y-auto max-h-[80vh] text-sm text-slate-500 dark:text-slate-400 scrollbar-hide px-4">
+        <div class="sticky top-0 bg-slate-50 dark:bg-dark-bg pt-2 pb-4 z-10 transition-colors">
+          <div class="font-bold text-slate-600 dark:text-slate-400 mb-2 px-2 uppercase text-[10px] tracking-widest">
             Index</div>
           <div class="relative px-2">
             <svg class="w-3 h-3 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
               <use href="#icon-search"></use>
             </svg>
             <input type="text" id="toc-filter" placeholder="目次を絞り込み..."
-              class="w-full bg-slate-100 border border-slate-200 text-slate-700 text-xs rounded-md pl-7 pr-2 py-1.5 outline-none focus:bg-white focus:border-primary transition-colors"
+              class="w-full bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border text-slate-700 dark:text-dark-text text-xs rounded-md pl-7 pr-2 py-1.5 outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:border-primary transition-colors"
               autocomplete="off">
           </div>
         </div>
@@ -136,20 +155,32 @@
 
         <!-- 左側：タイトル & ファイル名 -->
         <div class="flex flex-col gap-2 min-w-0 max-w-full shrink-0">
-          <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2 transition-colors">
+          <h1
+            class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 transition-colors">
             <span class="text-primary"><svg class="w-6 h-6">
                 <use href="#icon-money"></use>
               </svg></span> GrindMoney
           </h1>
           <div class="flex items-center">
             <span id="current-filename"
-              class="hidden text-[11px] font-mono font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded max-w-[250px] truncate transition-colors"
+              class="hidden text-[11px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-2 py-0.5 rounded max-w-[250px] truncate transition-colors"
               title="現在開いているファイル">Unsaved.grind</span>
           </div>
         </div>
 
         <!-- 右側：各種コントロール群 -->
         <div class="flex flex-wrap items-center gap-2 sm:gap-3 justify-start lg:justify-end w-full lg:w-auto">
+          <!-- ダークモードトグル -->
+          <button id="theme-toggle" onclick="toggleDarkMode()"
+            class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-3 py-2 rounded-md text-sm transition-all shadow-sm cursor-pointer shrink-0"
+            title="ダーク/ライトモードを切り替え">
+            <svg id="theme-icon-light" class="w-4 h-4 hidden dark:block">
+              <use href="#icon-sun"></use>
+            </svg>
+            <svg id="theme-icon-dark" class="w-4 h-4 block dark:hidden">
+              <use href="#icon-moon"></use>
+            </svg>
+          </button>
           <!-- インストールボタン (PWA) -->
           <button id="install-button"
             class="hidden bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-md text-sm font-bold shadow-sm transition-all shrink-0">
@@ -159,7 +190,7 @@
           <!-- 科目辞書選択 -->
           <label for="dict-select" class="sr-only">科目辞書を選択</label>
           <select id="dict-select" onchange="changeAccountDict()"
-            class="bg-white border border-slate-200 text-slate-700 text-xs px-2 py-2 rounded-md outline-none focus:border-primary shadow-sm cursor-pointer transition-colors"
+            class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border text-slate-700 dark:text-dark-text text-xs px-2 py-2 rounded-md outline-none focus:border-primary shadow-sm cursor-pointer transition-colors"
             title="入力時にサジェストする科目辞書を選択">
             <option value="custom">辞書: カスタム</option>
             <option value="none">科目サジェスト: オフ</option>
@@ -174,7 +205,7 @@
             <label for="file-password" class="sr-only">暗号化パスワード</label>
             <input type="password" id="file-password" placeholder="暗号化パスワード..." autocomplete="new-password"
               data-lpignore="true"
-              class="bg-white border border-slate-200 focus:border-primary text-sm pl-3 pr-8 py-2 rounded-md outline-none transition-all w-36 text-slate-900 placeholder-slate-400 shadow-sm"
+              class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border focus:border-primary text-sm pl-3 pr-8 py-2 rounded-md outline-none transition-all w-36 text-slate-900 dark:text-dark-text placeholder-slate-400 shadow-sm"
               title="パスワードを入力すると保存時にファイルを強力に暗号化します">
             <button type="button" onclick="togglePasswordVisibility()"
               class="absolute right-2 text-slate-400 hover:text-slate-600 transition-colors" title="パスワードの表示/非表示">
@@ -188,14 +219,14 @@
           </div>
 
           <button onclick="loadGrindFile()"
-            class="text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-white border border-slate-200 px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
+            class="text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
             title="開く">
             <svg class="w-4 h-4">
               <use href="#icon-folder"></use>
             </svg>
           </button>
           <button id="btn-save" onclick="saveGrindFile()"
-            class="relative text-slate-900 hover:bg-slate-100 bg-white border border-slate-200 px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
+            class="relative text-slate-900 dark:text-dark-text hover:bg-slate-100 dark:hover:bg-dark-surface-hover bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
             title="保存">
             <svg class="w-4 h-4">
               <use href="#icon-save"></use>
@@ -209,13 +240,13 @@
 
           <!-- コマンドパレット呼び出しボタン -->
           <button onclick="toggleCommandPalette()"
-            class="flex items-center gap-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-white border border-slate-200 px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
+            class="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-3 py-2 rounded-md text-sm font-medium transition-colors shadow-sm cursor-pointer shrink-0"
             title="コマンドパレットを開く">
             <svg class="w-4 h-4">
               <use href="#icon-search"></use>
             </svg>
             <span id="cmd-shortcut-key"
-              class="font-mono text-xs border border-slate-300 rounded px-1 transition-colors">⌘K</span>
+              class="font-mono text-xs border border-slate-300 dark:border-dark-border rounded px-1 transition-colors">⌘K</span>
           </button>
 
           <!-- 隠しインプット (コマンドパレットから叩く用) -->
@@ -239,7 +270,7 @@
       <div id="app-ui" class="hidden">
         <!-- 総合計金額表示 (Sticky + Backdrop Blur) -->
         <div
-          class="sm:sticky top-0 z-40 backdrop-blur-2xl bg-white/70 pt-6 pb-4 mb-10 border-b border-slate-200/50 -mx-6 px-6 transition-colors flex flex-col gap-3">
+          class="sm:sticky top-0 z-40 backdrop-blur-2xl bg-white/70 dark:bg-dark-bg/80 pt-6 pb-4 mb-10 border-b border-slate-200/50 dark:border-dark-border/50 -mx-6 px-6 transition-colors flex flex-col gap-3">
 
           <!-- 上段: ドロップダウンと金額 -->
           <div class="flex justify-between items-end gap-4">
@@ -252,7 +283,7 @@
                 </svg> Period
               </label>
               <select id="period-filter" onchange="handleDropdownChange()"
-                class="bg-transparent text-slate-800 font-extrabold text-xl sm:text-2xl outline-none cursor-pointer hover:text-primary transition-colors appearance-none pr-6">
+                class="bg-transparent text-slate-800 dark:text-dark-text font-extrabold text-xl sm:text-2xl outline-none cursor-pointer hover:text-primary transition-colors appearance-none pr-6">
                 <option value="all">すべての期間</option>
               </select>
               <!-- ドロップダウン用の矢印アイコン -->
@@ -267,7 +298,7 @@
               <p id="grand-total-label"
                 class="text-[10px] font-bold text-slate-400 mb-1 tracking-[0.2em] uppercase truncate">Total
                 Amount</p>
-              <p class="text-4xl sm:text-5xl md:text-6xl font-black tabular-nums tracking-tight bg-gradient-to-br from-slate-900 to-slate-500 bg-clip-text text-transparent break-all"
+              <p class="text-4xl sm:text-5xl md:text-6xl font-black tabular-nums tracking-tight bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent break-all"
                 id="grand-total">
                 <span id="grand-total-num">0</span> <span
                   class="text-xl font-sans font-bold text-slate-400 align-baseline ml-1">JPY</span>
@@ -277,7 +308,7 @@
 
           <!-- 下段: クイック・セレクター -->
           <div id="quick-period-selectors"
-            class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/50 transition-all">
+            class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/50 dark:border-dark-border/50 transition-all">
             <button onclick="setPeriodFilter('all', this)"
               data-active-classes="!bg-slate-700 !text-white !border-slate-700"
               class="px-2 py-1 rounded bg-slate-200 border border-slate-200 text-slate-700 text-[10px] font-bold hover:bg-slate-700 hover:border-slate-700 hover:text-white transition-colors cursor-pointer uppercase shadow-sm">All</button>
@@ -323,8 +354,8 @@
           </div>
           <label for="new-block-memo" class="sr-only">新しいブロックを作成</label>
           <input type="text" id="new-block-memo" oninput="setDirty(true)" placeholder="新しいブロックを作成 (例: 2026年5月 東京出張) ..."
-            onkeydown="if(event.key==='Enter' && event.isComposing){ event.stopPropagation(); }"
-            class="w-full pl-10 pr-4 py-4 bg-transparent border-b-2 border-slate-200 focus:border-primary outline-none text-2xl font-extrabold text-slate-900 placeholder-slate-400 transition-colors">
+            onkeydown="if(event.key==='Enter' && event.isComposing){ event.preventDefault(); event.stopPropagation(); }"
+            class="w-full pl-10 pr-4 py-4 bg-transparent border-b-2 border-slate-200 dark:border-dark-border focus:border-primary outline-none text-2xl font-extrabold text-slate-900 dark:text-white placeholder-slate-400 transition-colors">
           <button type="submit" class="hidden">追加</button>
         </form>
 
@@ -368,9 +399,10 @@
     <div id="csv-mapping-modal" onclick="closeCSVModal()"
       class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
-        class="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col transition-colors">
-        <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center shrink-0">
-          <h3 class="text-lg font-bold text-slate-900">CSVインポート設定</h3>
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col transition-colors animate-modal-in">
+        <div
+          class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center shrink-0">
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white">CSVインポート設定</h3>
           <button onclick="closeCSVModal()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
@@ -441,9 +473,9 @@
     <div id="export-modal" onclick="closeExportModal()"
       class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
-        class="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors">
-        <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-          <h3 class="text-lg font-bold text-slate-900">CSVエクスポート</h3>
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors animate-modal-in">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center">
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white">CSVエクスポート</h3>
           <button onclick="closeExportModal()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
@@ -483,9 +515,9 @@
     <div id="tag-modal" onclick="closeTagModal()"
       class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
-        class="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-hidden transition-colors flex flex-col">
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-hidden transition-colors flex flex-col animate-modal-in">
         <div
-          class="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/80 backdrop-blur-md">
+          class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center bg-slate-50/80 dark:bg-dark-bg/80 backdrop-blur-md">
           <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
             <span id="tag-modal-title"
               class="bg-primary-50 text-primary border border-primary/20 px-2 py-1 rounded-md text-sm tracking-widest font-mono truncate max-w-[200px] sm:max-w-xs inline-block align-bottom">#TAG</span>
@@ -510,9 +542,10 @@
     <div id="account-dict-editor-modal" onclick="closeAccountDictEditor()"
       class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
-        class="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors flex flex-col max-h-[80vh]">
-        <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center shrink-0">
-          <h3 class="text-lg font-bold text-slate-900">カスタム科目辞書の編集</h3>
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors flex flex-col max-h-[80vh] animate-modal-in">
+        <div
+          class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center shrink-0">
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white">カスタム科目辞書の編集</h3>
           <button onclick="closeAccountDictEditor()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
@@ -551,9 +584,10 @@
     <!-- パスワード入力モーダル (prompt代替) -->
     <div id="password-prompt-modal"
       class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] items-center justify-center p-4">
-      <div class="bg-white border border-slate-200 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
-        <div class="px-6 py-5 border-b border-slate-100">
-          <h3 class="text-lg font-bold text-slate-900">パスワードの入力</h3>
+      <div
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-modal-in">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-dark-border">
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white">パスワードの入力</h3>
         </div>
         <div class="px-6 py-6 space-y-4">
           <p id="password-prompt-message" class="text-sm text-slate-600">ファイルは暗号化されています。解除パスワードを入力してください:</p>
@@ -571,31 +605,32 @@
     </div>
 
     <!-- ドラッグ＆ドロップ オーバーレイ -->
-    <div id="drop-overlay"
-      class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] items-center justify-center border-4 border-dashed border-primary transition-opacity">
+    <div id="drop-overlay" onclick="this.classList.add('hidden'); this.classList.remove('flex'); dragCounter = 0;"
+      class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] items-center justify-center border-4 border-dashed border-primary transition-opacity cursor-pointer">
       <div class="text-center pointer-events-none">
         <svg class="w-16 h-16 text-primary mx-auto mb-4">
           <use href="#icon-folder"></use>
         </svg>
         <h2 class="text-3xl font-extrabold text-white tracking-tight">.grind ファイルをドロップして開く</h2>
         <p class="text-slate-300 mt-2">そのまま上書き保存も可能です</p>
+        <p class="text-slate-500 text-xs mt-6">※画面をクリックするとこの表示を消せます</p>
       </div>
     </div>
 
-    <!-- コマンドパレット (Cmd+K) -->
     <div id="cmd-palette" onclick="toggleCommandPalette()"
-      class="hidden fixed inset-0 bg-black/20 backdrop-blur-sm z-[100] items-start justify-center pt-[15vh] p-4 transition-opacity">
+      class="hidden fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm z-[100] items-start justify-center pt-[15vh] p-4 transition-opacity animate-modal-overlay">
       <!-- Raycastスタイルのモーダル -->
       <div onclick="event.stopPropagation()"
-        class="bg-white/80 backdrop-blur-3xl ring-1 ring-slate-200 rounded-xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl transition-all">
-        <div class="p-4 border-b border-slate-200/50 flex items-center gap-3 relative">
+        class="bg-white/80 dark:bg-dark-surface/90 backdrop-blur-3xl ring-1 ring-slate-200 dark:ring-dark-border rounded-xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl transition-all animate-modal-in">
+        <div class="p-4 border-b border-slate-200/50 dark:border-dark-border/50 flex items-center gap-3 relative">
           <label for="cmd-input" class="sr-only">コマンド検索</label>
-          <span class="text-slate-500"><svg class="w-5 h-5">
+          <span class="text-slate-500 dark:text-slate-400"><svg class="w-5 h-5">
               <use href="#icon-search"></use>
             </svg></span>
           <input type="text" id="cmd-input" placeholder="Type a command or search..."
-            class="bg-transparent text-slate-900 w-full outline-none text-xl font-medium placeholder-slate-400 font-sans">
-          <span class="absolute right-4 text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded">ESC</span>
+            class="bg-transparent text-slate-900 dark:text-white w-full outline-none text-xl font-medium placeholder-slate-400 font-sans">
+          <span
+            class="absolute right-4 text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-dark-bg px-2 py-1 rounded">ESC</span>
         </div>
         <div id="cmd-list" class="max-h-[50vh] overflow-y-auto p-2 scrollbar-hide"></div>
       </div>

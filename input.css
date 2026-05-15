@@ -1,12 +1,238 @@
 @import "tailwindcss";
 
+/* ダークモードのクラスベース切り替えを有効化 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: #0f62fe;
   --color-primary-hover: #0353e9;
   --color-primary-50: #eff4ff;
   --font-sans: "Inter", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
+
+  /* ダークモード用サーフェスカラー */
+  --color-dark-bg: #0b0f1a;
+  --color-dark-surface: #131825;
+  --color-dark-surface-hover: #1a2035;
+  --color-dark-border: #1e2a3a;
+  --color-dark-border-hover: #2a3a50;
+  --color-dark-text: #e2e8f0;
+  --color-dark-text-secondary: #94a3b8;
+
+  /* アニメーション定義 */
+  --animate-modal-in: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-modal-overlay: modalOverlay 0.2s ease-out forwards;
+  --animate-toast-in: toastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-toast-out: toastOut 0.3s ease-in forwards;
+  --animate-glow-pulse: glowPulse 2s ease-in-out infinite;
+  --animate-fade-in: fadeIn 0.3s ease-out forwards;
+  --animate-slide-up: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-block-enter: blockEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-success-flash: successFlash 0.6s ease-out;
+  --animate-ripple: ripple 0.6s ease-out;
 }
 
 /* 1. クラス名の抽出対象ファイルを明示的に指定 */
 @source "./index.html";
 @source "./main.js";
+
+/* --- カスタムキーフレーム定義 --- */
+
+/* モーダルの出現アニメーション */
+@keyframes modalIn {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* モーダル背景のフェードイン */
+@keyframes modalOverlay {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* トースト通知のスライドイン */
+@keyframes toastIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -12px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+/* トースト通知のフェードアウト */
+@keyframes toastOut {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -12px) scale(0.95);
+  }
+}
+
+/* ブロック追加時のエントランスアニメーション */
+@keyframes blockEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* グロウパルスエフェクト */
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(15, 98, 254, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px 4px rgba(15, 98, 254, 0.15);
+  }
+}
+
+/* フェードインアニメーション */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* スライドアップアニメーション */
+@keyframes slideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* フローティングアニメーション (空状態のアイコン用) */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* 成功フラッシュ (入力完了時) */
+@keyframes successFlash {
+  0% { background-color: rgba(16, 185, 129, 0.15); }
+  100% { background-color: transparent; }
+}
+
+/* リップルエフェクト */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* トーストのプログレスバー */
+@keyframes toastProgress {
+  0% { width: 100%; }
+  100% { width: 0%; }
+}
+
+/* --- ユーティリティレイヤー拡張 --- */
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* --- カスタムスタイル --- */
+
+/* モーダルのアニメーション用ユーティリティ */
+@utility animate-modal-in {
+  animation: var(--animate-modal-in);
+}
+
+@utility animate-modal-overlay {
+  animation: var(--animate-modal-overlay);
+}
+
+@utility animate-toast-in {
+  animation: var(--animate-toast-in);
+}
+
+@utility animate-toast-out {
+  animation: var(--animate-toast-out);
+}
+
+@utility animate-block-enter {
+  animation: var(--animate-block-enter);
+}
+
+@utility animate-float {
+  animation: var(--animate-float);
+}
+
+@utility animate-fade-in {
+  animation: var(--animate-fade-in);
+}
+
+@utility animate-glow-pulse {
+  animation: var(--animate-glow-pulse);
+}
+
+/* ダークモードのスムーズトランジション */
+@layer base {
+  html {
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* ダークモードのグローバルスタイル */
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* フォーカスリングの統一スタイル */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ダークモードのスクロールバー */
+  html.dark ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  html.dark ::-webkit-scrollbar-track {
+    background: var(--color-dark-bg);
+  }
+  html.dark ::-webkit-scrollbar-thumb {
+    background: var(--color-dark-border);
+    border-radius: 3px;
+  }
+
+  /* セレクトボックスのダークモード */
+  html.dark select option {
+    background-color: var(--color-dark-surface);
+    color: var(--color-dark-text);
+  }
+
+  /* date inputのダークモード */
+  html.dark input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
