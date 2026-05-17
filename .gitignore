@@ -1,5 +1,4 @@
 # 個人データ・エクスポートファイル
-*.grind
 *.people
 *.sqlite
 *.csv

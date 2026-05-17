@@ -52,8 +52,12 @@
 
 /* モーダル背景のフェードイン */
 @keyframes modalOverlay {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* トースト通知のスライドイン */
@@ -94,7 +98,8 @@
 
 /* グロウパルスエフェクト */
 @keyframes glowPulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 0 rgba(15, 98, 254, 0);
   }
   50% {
@@ -104,8 +109,12 @@
 
 /* フェードインアニメーション */
 @keyframes fadeIn {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 /* スライドアップアニメーション */
@@ -122,14 +131,23 @@
 
 /* フローティングアニメーション (空状態のアイコン用) */
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 /* 成功フラッシュ (入力完了時) */
 @keyframes successFlash {
-  0% { background-color: rgba(16, 185, 129, 0.15); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: rgba(16, 185, 129, 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 /* リップルエフェクト */
@@ -146,8 +164,12 @@
 
 /* トーストのプログレスバー */
 @keyframes toastProgress {
-  0% { width: 100%; }
-  100% { width: 0%; }
+  0% {
+    width: 100%;
+  }
+  100% {
+    width: 0%;
+  }
 }
 
 /* --- ユーティリティレイヤー拡張 --- */
@@ -197,7 +219,9 @@
 /* ダークモードのスムーズトランジション */
 @layer base {
   html {
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
   }
 
   /* ダークモードのグローバルスタイル */
@@ -234,5 +258,11 @@
   /* date inputのダークモード */
   html.dark input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
+  }
+
+  /* 詳細モーダルで「最後の1行」の削除ボタンを非表示にする */
+  #detail-phones > div:only-child > button,
+  #detail-emails > div:only-child > button {
+    display: none;
   }
 }
