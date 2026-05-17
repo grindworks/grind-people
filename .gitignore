@@ -1,7 +1,9 @@
 # 個人データ・エクスポートファイル
 *.grind
+*.people
 *.sqlite
 *.csv
+*.vcf
 
 # Tailwind Standalone CLI バイナリ
 tailwindcss-macos-arm64

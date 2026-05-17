@@ -1,6 +1,6 @@
 {
-  "name": "GrindMoney",
-  "short_name": "GrindMoney",
+  "name": "People",
+  "short_name": "People",
   "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#fafafa",
@@ -21,7 +21,7 @@
     {
       "action": "/index.html",
       "accept": {
-        "application/x-sqlite3": [".grind"]
+        "application/x-sqlite3": [".people", ".sqlite"]
       }
     }
   ]

@@ -1,5 +1,5 @@
-// 💡 アップデート時はここを v2, v3... と書き換えることで更新が発火します
-const CACHE_NAME = "grindmoney-v41";
+// 💡 アップデート時はここを書き換えることで更新が発火します
+const CACHE_NAME = "grindpeople-v6";
 const urlsToCache = [
   "/",
   "/index.html",
@@ -69,7 +69,8 @@ self.addEventListener("activate", (event) => {
 // fetchイベントでキャッシュを返す
 self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches.match(event.request).then((response) => {
+    // クエリパラメータを無視してWASMファイルなどを確実にキャッシュヒットさせる
+    caches.match(event.request, { ignoreSearch: true }).then((response) => {
       // 1. キャッシュがあればそれを返す
       if (response) {
         return response;
@@ -82,27 +83,7 @@ self.addEventListener("fetch", (event) => {
           (event.request.headers.get("accept") &&
             event.request.headers.get("accept").includes("text/html"))
         ) {
-          const fallbackHtml = `
-            <!DOCTYPE html>
-            <html lang="ja">
-            <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>GrindMoney - 通知</title>
-              <style>
-                body { font-family: sans-serif; background-color: #fafafa; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; }
-                h1 { font-size: 20px; color: #111827; margin-bottom: 16px; font-weight: bold; }
-                p { font-size: 15px; color: #4b5563; line-height: 1.6; margin-bottom: 24px; }
-                .icon { font-size: 48px; margin-bottom: 16px; }
-              </style>
-            </head>
-            <body>
-              <div class="icon">💡</div>
-              <h1>ブラウザのキャッシュがクリアされたようです</h1>
-              <p>お金のデータ（.grindファイル）はあなたのPCに安全に保存されていますので、ご安心ください！<br><br>アプリを再びオフラインで使うには、お手数ですが<strong>一度インターネットに接続した状態で、GrindMoneyにアクセスし直して</strong>ください。<br>すぐに元通り使えるようになります。</p>
-            </body>
-            </html>
-          `;
+          const fallbackHtml = `\n            <!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>People - 通知</title><style>body { font-family: sans-serif; background-color: #fafafa; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; } h1 { font-size: 20px; color: #111827; margin-bottom: 16px; font-weight: bold; } p { font-size: 15px; color: #4b5563; line-height: 1.6; margin-bottom: 24px; } .icon { font-size: 48px; margin-bottom: 16px; }</style></head><body><div class="icon">💡</div><h1>ブラウザのキャッシュがクリアされたようです</h1><p>連絡先データはあなたのPCに安全に保存されています。<br><br>アプリを再びオフラインで使うには、一度インターネットに接続した状態でアクセスし直してください。</p></body></html>\n          `;
           return new Response(fallbackHtml, {
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });

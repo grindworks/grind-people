@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="ja" class="scroll-smooth scroll-pt-[220px] sm:scroll-pt-[240px]">
+<html lang="ja" class="scroll-smooth scroll-pt-[220px] sm:scroll-pt-60">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>GrindMoney - Serverless Edition</title>
+  <title>People - Serverless Edition</title>
 
   <!-- OSのステータスバー色をテーマに合わせる -->
   <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
@@ -17,6 +17,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+JP:wght@300;400;500;700;800;900&display=swap"
     rel="stylesheet">
 
+  <!-- ビルド済みの Tailwind CSS を読み込む (オフライン対応) -->
   <link rel="stylesheet" href="styles.css">
 
   <!-- iOS PWA用 メタタグ -->
@@ -25,26 +26,41 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- SQLiteをブラウザ(Wasm)で動かすためのライブラリ -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js" integrity="sha512-mOQEXb+nB0mE6OQy1x..."
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- Favicon -->
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="manifest" href="manifest.json">
 
   <!-- iOS用 ホーム画面アイコン -->
   <link rel="apple-touch-icon" href="icon-192.png">
+  <script>
+    // FOUC (Flash of Unstyled Content) 完全防止
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+        document.documentElement.classList.add("dark");
+        document.getElementById("meta-theme-color")?.setAttribute("content", "#0f172a");
+      }
+    } catch (e) { }
+  </script>
 </head>
 
 <body
-  class="bg-slate-50 dark:bg-dark-bg text-slate-900 dark:text-dark-text font-sans min-h-screen antialiased selection:bg-primary/30 transition-colors duration-300 overscroll-y-none"
-  style="scrollbar-gutter: stable; overscroll-behavior-y: none;">
+  class="bg-slate-50 dark:bg-dark-bg text-slate-900 dark:text-dark-text font-sans min-h-[100dvh] antialiased selection:bg-primary/30 transition-colors duration-300 overscroll-none"
+  style="scrollbar-gutter: stable; overscroll-behavior: none; touch-action: pan-y;">
 
   <!-- SVG Sprite (Heroicons) -->
   <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1"
     xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <symbol id="icon-money" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
-          d="M9 7.5l3 4.5m0 0l3-4.5m-3 4.5v4.5m3-6.75a3 3 0 11-6 0 3 3 0 016 0zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
       </symbol>
       <symbol id="icon-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
@@ -122,6 +138,11 @@
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
       </symbol>
+      <symbol id="icon-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z" />
+      </symbol>
     </defs>
   </svg>
 
@@ -158,13 +179,13 @@
           <h1
             class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2 transition-colors">
             <span class="text-primary"><svg class="w-6 h-6">
-                <use href="#icon-money"></use>
-              </svg></span> GrindMoney
+                <use href="#icon-users"></use>
+              </svg></span> People
           </h1>
           <div class="flex items-center">
             <span id="current-filename"
               class="hidden text-[11px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-2 py-0.5 rounded max-w-[250px] truncate transition-colors"
-              title="現在開いているファイル">Unsaved.grind</span>
+              title="現在開いているファイル">Unsaved.people</span>
           </div>
         </div>
 
@@ -187,24 +208,22 @@
             ↓ アプリとしてインストール
           </button>
 
-          <!-- 科目辞書選択 -->
-          <label for="dict-select" class="sr-only">科目辞書を選択</label>
-          <select id="dict-select" onchange="changeAccountDict()"
+          <!-- サジェスト辞書選択 -->
+          <label for="dict-select" class="sr-only">サジェスト辞書を選択</label>
+          <select id="dict-select" onchange="changeRoleDict()"
             class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border text-slate-700 dark:text-dark-text text-xs px-2 py-2 rounded-md outline-none focus:border-primary shadow-sm cursor-pointer transition-colors"
-            title="入力時にサジェストする科目辞書を選択">
+            title="入力時にサジェストする辞書を選択">
             <option value="custom">辞書: カスタム</option>
-            <option value="none">科目サジェスト: オフ</option>
-            <option value="yayoi">辞書: 弥生会計</option>
-            <option value="freee">辞書: freee</option>
-            <option value="mf">辞書: マネーフォワード</option>
-            <option value="freeway">辞書: フリーウェイ</option>
+            <option value="none">サジェスト: オフ</option>
+            <option value="business">辞書: ビジネス</option>
+            <option value="community">辞書: コミュニティ</option>
           </select>
 
           <!-- 暗号化パスワード入力 -->
           <div class="relative flex items-center">
             <label for="file-password" class="sr-only">暗号化パスワード</label>
             <input type="password" id="file-password" placeholder="暗号化パスワード..." autocomplete="new-password"
-              data-lpignore="true"
+              data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
               class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border focus:border-primary text-sm pl-3 pr-8 py-2 rounded-md outline-none transition-all w-36 text-slate-900 dark:text-dark-text placeholder-slate-400 shadow-sm"
               title="パスワードを入力すると保存時にファイルを強力に暗号化します">
             <button type="button" onclick="togglePasswordVisibility()"
@@ -234,7 +253,7 @@
             <!-- 未保存バッジ -->
             <span id="dirty-badge" class="hidden absolute -top-1 -right-1 h-3 w-3">
               <span
-                class="relative inline-flex rounded-full h-3 w-3 bg-orange-500 border-2 border-white shadow-[0_0_8px_theme(colors.orange.500)]"></span>
+                class="relative inline-flex rounded-full h-3 w-3 bg-orange-500 border-2 border-white shadow-[0_0_8px_var(--color-orange-500)]"></span>
             </span>
           </button>
 
@@ -251,6 +270,7 @@
 
           <!-- 隠しインプット (コマンドパレットから叩く用) -->
           <input type="file" id="csv-input" accept=".csv" class="hidden" onchange="importCSV(event)">
+          <input type="file" id="vcf-input" accept=".vcf" class="hidden" onchange="handleVCFInput(event)">
         </div>
       </header>
 
@@ -268,83 +288,45 @@
 
       <!-- アプリUI -->
       <div id="app-ui" class="hidden">
-        <!-- 総合計金額表示 (Sticky + Backdrop Blur) -->
+        <!-- 総合計人数 & カテゴリフィルター (Sticky + Backdrop Blur) -->
         <div
-          class="sm:sticky top-0 z-40 backdrop-blur-2xl bg-white/70 dark:bg-dark-bg/80 pt-6 pb-4 mb-10 border-b border-slate-200/50 dark:border-dark-border/50 -mx-6 px-6 transition-colors flex flex-col gap-3">
+          class="sm:sticky top-0 z-40 backdrop-blur-2xl bg-white/70 dark:bg-dark-bg/80 pt-6 pb-4 mb-8 border-b border-slate-200/50 dark:border-dark-border/50 -mx-6 px-6 transition-colors flex flex-col gap-4">
 
-          <!-- 上段: ドロップダウンと金額 -->
+          <!-- 上段: 合計人数とエクスポートボタン -->
           <div class="flex justify-between items-end gap-4">
-            <!-- 期間フィルター -->
-            <div class="flex flex-col relative group shrink-0 mb-1">
-              <label for="period-filter"
-                class="text-[10px] font-bold text-slate-400 mb-1 tracking-widest uppercase flex items-center gap-1">
-                <svg class="w-3 h-3">
-                  <use href="#icon-search"></use>
-                </svg> Period
-              </label>
-              <select id="period-filter" onchange="handleDropdownChange()"
-                class="bg-transparent text-slate-800 dark:text-dark-text font-extrabold text-xl sm:text-2xl outline-none cursor-pointer hover:text-primary transition-colors appearance-none pr-6">
-                <option value="all">すべての期間</option>
-              </select>
-              <!-- ドロップダウン用の矢印アイコン -->
-              <svg
-                class="w-4 h-4 text-slate-400 absolute right-0 bottom-1.5 pointer-events-none group-hover:text-primary transition-colors">
-                <use href="#icon-chevron-down"></use>
-              </svg>
-            </div>
-
-            <!-- 金額表示 -->
             <div class="text-right min-w-0">
               <p id="grand-total-label"
-                class="text-[10px] font-bold text-slate-400 mb-1 tracking-[0.2em] uppercase truncate">Total
-                Amount</p>
-              <p class="text-4xl sm:text-5xl md:text-6xl font-black tabular-nums tracking-tight bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent break-all"
-                id="grand-total">
-                <span id="grand-total-num">0</span> <span
-                  class="text-xl font-sans font-bold text-slate-400 align-baseline ml-1">JPY</span>
+                class="text-[10px] font-bold text-slate-400 mb-1 tracking-[0.2em] uppercase truncate">Total Contacts</p>
+              <p
+                class="text-4xl sm:text-5xl md:text-6xl font-black tabular-nums tracking-tight bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent break-all flex items-baseline gap-2">
+                <span id="grand-total-num">0</span>
+                <span class="text-xl font-sans font-bold text-slate-400">人</span>
               </p>
             </div>
+
+            <!-- 現在の表示状態を全件エクスポートするボタン -->
+            <button onclick="exportVCard()"
+              class="hidden sm:flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-all shrink-0 active:scale-95">
+              <svg class="w-4 h-4">
+                <use href="#icon-download"></use>
+              </svg>
+              表示中を出力
+            </button>
           </div>
 
-          <!-- 下段: クイック・セレクター -->
-          <div id="quick-period-selectors"
-            class="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/50 dark:border-dark-border/50 transition-all">
-            <button onclick="setPeriodFilter('all', this)"
-              data-active-classes="!bg-slate-700 !text-white !border-slate-700"
-              class="px-2 py-1 rounded bg-slate-200 border border-slate-200 text-slate-700 text-[10px] font-bold hover:bg-slate-700 hover:border-slate-700 hover:text-white transition-colors cursor-pointer uppercase shadow-sm">All</button>
-            <div class="h-4 w-px bg-slate-200 mx-0.5"></div>
-            <button onclick="setMultiMonthFilter([1,2,3], this)"
-              data-active-classes="!bg-blue-600 !text-white !border-blue-600"
-              class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold hover:bg-blue-600 hover:border-blue-600 hover:text-white transition-colors cursor-pointer shadow-sm">1-3月</button>
-            <button onclick="setMultiMonthFilter([4,5,6], this)"
-              data-active-classes="!bg-blue-600 !text-white !border-blue-600"
-              class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold hover:bg-blue-600 hover:border-blue-600 hover:text-white transition-colors cursor-pointer shadow-sm">4-6月</button>
-            <button onclick="setMultiMonthFilter([7,8,9], this)"
-              data-active-classes="!bg-blue-600 !text-white !border-blue-600"
-              class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold hover:bg-blue-600 hover:border-blue-600 hover:text-white transition-colors cursor-pointer shadow-sm">7-9月</button>
-            <button onclick="setMultiMonthFilter([10,11,12], this)"
-              data-active-classes="!bg-blue-600 !text-white !border-blue-600"
-              class="px-2 py-1 rounded bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold hover:bg-blue-600 hover:border-blue-600 hover:text-white transition-colors cursor-pointer shadow-sm">10-12月</button>
-            <div class="h-4 w-px bg-slate-200 mx-0.5"></div>
-            <button onclick="setCalendarYearFilter(this)"
-              data-active-classes="!bg-green-600 !text-white !border-green-600"
-              class="px-2 py-1 rounded bg-green-50 border border-green-100 text-green-700 text-[10px] font-bold hover:bg-green-600 hover:border-green-600 hover:text-white transition-colors cursor-pointer shadow-sm">今年
-              (1-12月)</button>
-            <div class="flex">
-              <button id="prev-fiscal-year-btn" onclick="setPreviousFiscalYearFilter(this)"
-                data-active-classes="!bg-purple-600 !text-white !border-purple-600"
-                class="px-2 py-1 rounded-l bg-purple-50 border border-purple-100 text-purple-700 text-[10px] font-bold hover:bg-purple-600 hover:border-purple-600 hover:text-white transition-colors cursor-pointer shadow-sm border-r-0">前年度</button>
-              <button id="fiscal-year-btn" onclick="setFiscalYearFilter(this)"
-                data-active-classes="!bg-purple-600 !text-white !border-purple-600"
-                class="px-2 py-1 bg-purple-50 border border-purple-100 text-purple-700 text-[10px] font-bold hover:bg-purple-600 hover:border-purple-600 hover:text-white transition-colors cursor-pointer shadow-sm border-r-0">今年度</button>
-              <button id="fiscal-month-gear-btn" onclick="changeFiscalMonth()"
-                class="px-2 py-1 rounded-r bg-purple-50 border border-purple-100 text-purple-500 hover:bg-purple-600 hover:border-purple-600 hover:text-white transition-colors cursor-pointer shadow-sm flex items-center justify-center"
-                title="開始月を変更"><svg class="w-3.5 h-3.5">
-                  <use href="#icon-cog"></use>
-                </svg></button>
+          <!-- 下段: カテゴリ（タグ）フィルター -->
+          <div class="relative w-full overflow-hidden">
+
+            <div id="category-filters"
+              class="flex items-center gap-2 overflow-x-auto pb-2 -mb-2 scrollbar-hide snap-x relative z-0">
+              <!-- JSで動的にタグ一覧が生成されます -->
+              <button onclick="setCategoryFilter(null)" id="filter-btn-all"
+                class="snap-start px-4 py-1.5 rounded-full bg-slate-800 text-white border border-slate-800 text-xs font-bold hover:bg-slate-700 transition-colors shadow-sm shrink-0">
+                すべて表示
+              </button>
+              <!-- 例: <button class="...">#ビジネス (12)</button> -->
             </div>
           </div>
-
         </div>
 
         <!-- トップレベルのブロック追加UI -->
@@ -353,7 +335,7 @@
             <span class="text-slate-400 text-3xl font-light pl-2 group-hover:text-primary transition-colors">+</span>
           </div>
           <label for="new-block-memo" class="sr-only">新しいブロックを作成</label>
-          <input type="text" id="new-block-memo" oninput="setDirty(true)" placeholder="新しいブロックを作成 (例: 2026年5月 東京出張) ..."
+          <input type="text" id="new-block-memo" oninput="setDirty(true)" placeholder="新しいブロックを作成 (例: 株式会社〇〇) ..."
             onkeydown="if(event.key==='Enter' && event.isComposing){ event.preventDefault(); event.stopPropagation(); }"
             class="w-full pl-10 pr-4 py-4 bg-transparent border-b-2 border-slate-200 dark:border-dark-border focus:border-primary outline-none text-2xl font-extrabold text-slate-900 dark:text-white placeholder-slate-400 transition-colors">
           <button type="submit" class="hidden">追加</button>
@@ -397,7 +379,7 @@
 
     <!-- CSVマッピングモーダル -->
     <div id="csv-mapping-modal" onclick="closeCSVModal()"
-      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-100 items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
         class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col transition-colors animate-modal-in">
         <div
@@ -407,7 +389,7 @@
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="px-6 py-6 space-y-4 overflow-y-auto flex-1">
-          <p class="text-sm text-slate-600">CSVの各列をGrindMoneyのデータに割り当ててください。</p>
+          <p class="text-sm text-slate-600">CSVの各列を連絡先データに割り当ててください。</p>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
               <label for="map-date" class="block text-xs font-bold text-slate-700 mb-1">日付の列 <span
@@ -416,19 +398,19 @@
                 class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary"></select>
             </div>
             <div>
-              <label for="map-account" class="block text-xs font-bold text-slate-700 mb-1">勘定科目の列 <span
+              <label for="map-role" class="block text-xs font-bold text-slate-700 mb-1">役割/役職の列 <span
                   class="text-slate-400 font-normal">(任意)</span></label>
-              <select id="map-account" onchange="renderCSVPreview()"
+              <select id="map-role" onchange="renderCSVPreview()"
                 class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary"></select>
             </div>
             <div>
-              <label for="map-memo" class="block text-xs font-bold text-slate-700 mb-1">メモ(摘要)の列</label>
+              <label for="map-memo" class="block text-xs font-bold text-slate-700 mb-1">氏名(メモ)の列</label>
               <select id="map-memo" onchange="renderCSVPreview()"
                 class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary"></select>
             </div>
             <div>
-              <label for="map-amount" class="block text-xs font-bold text-slate-700 mb-1">金額の列</label>
-              <select id="map-amount" onchange="renderCSVPreview()"
+              <label for="map-contact" class="block text-xs font-bold text-slate-700 mb-1">連絡先の列</label>
+              <select id="map-contact" onchange="renderCSVPreview()"
                 class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary"></select>
             </div>
           </div>
@@ -471,7 +453,7 @@
 
     <!-- エクスポートモーダル -->
     <div id="export-modal" onclick="closeExportModal()"
-      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-100 items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
         class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors animate-modal-in">
         <div class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center">
@@ -480,7 +462,7 @@
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="px-6 py-6 space-y-4">
-          <p class="text-sm text-slate-600">出力する会計ソフトのフォーマットを選択してください。</p>
+          <p class="text-sm text-slate-600">出力するフォーマットを選択してください。</p>
 
           <!-- エクスポート対象期間の表示 -->
           <div id="export-period-info"
@@ -490,17 +472,10 @@
             <label for="export-format" class="sr-only">出力フォーマット</label>
             <select id="export-format"
               class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary">
-              <option value="yayoi">弥生会計</option>
-              <option value="freee">freee会計</option>
-              <option value="mf">マネーフォワード クラウド会計</option>
-              <option value="freeway">フリーウェイ経理</option>
-              <option value="generic">汎用フォーマット (税理士加工用)</option>
+              <option value="vcard">vCard形式 (.vcf)</option>
+              <option value="generic" disabled>汎用CSV形式 (準備中)</option>
             </select>
           </div>
-          <p class="text-[11px] text-slate-500 mt-3 bg-slate-100 p-2.5 rounded border border-slate-200">
-            💡 <b>文字化けする場合:</b>
-            一部の古い会計ソフト（弥生等）はShift_JIS形式を要求します。文字化けして取り込めない場合は、出力したCSVを一度Excelで開き、そのまま「上書き保存」してからインポートしてください。
-          </p>
         </div>
         <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end space-x-3">
           <button onclick="closeExportModal()"
@@ -513,7 +488,7 @@
 
     <!-- ハッシュタグ集計モーダル -->
     <div id="tag-modal" onclick="closeTagModal()"
-      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-100 items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
         class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-hidden transition-colors flex flex-col animate-modal-in">
         <div
@@ -523,7 +498,14 @@
               class="bg-primary-50 text-primary border border-primary/20 px-2 py-1 rounded-md text-sm tracking-widest font-mono truncate max-w-[200px] sm:max-w-xs inline-block align-bottom">#TAG</span>
           </h3>
           <div class="flex items-center gap-4">
-            <span id="tag-modal-total" class="tabular-nums tracking-tight text-2xl font-black text-slate-800">¥0</span>
+            <span id="tag-modal-total" class="tabular-nums tracking-tight text-2xl font-black text-slate-800">0人</span>
+            <button id="tag-modal-export-btn"
+              class="text-primary hover:text-primary-hover bg-primary-50 hover:bg-primary/20 p-2 rounded-full transition-colors"
+              title="このメンバーをvCardで抽出">
+              <svg class="w-5 h-5">
+                <use href="#icon-download"></use>
+              </svg>
+            </button>
             <button onclick="closeTagModal()"
               class="text-slate-400 hover:text-slate-600 text-3xl leading-none transition-colors">&times;</button>
           </div>
@@ -539,23 +521,23 @@
     </div>
 
     <!-- カスタム科目辞書編集モーダル -->
-    <div id="account-dict-editor-modal" onclick="closeAccountDictEditor()"
-      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] items-center justify-center p-4">
+    <div id="role-dict-editor-modal" onclick="closeRoleDictEditor()"
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-100 items-center justify-center p-4">
       <div onclick="event.stopPropagation()"
         class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden transition-colors flex flex-col max-h-[80vh] animate-modal-in">
         <div
           class="px-6 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-center shrink-0">
-          <h3 class="text-lg font-bold text-slate-900 dark:text-white">カスタム科目辞書の編集</h3>
-          <button onclick="closeAccountDictEditor()"
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white">カスタム辞書の編集</h3>
+          <button onclick="closeRoleDictEditor()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="px-6 py-6 space-y-4 overflow-y-auto">
           <div class="flex justify-between items-end gap-4">
-            <p class="text-sm text-slate-600">よく使う科目を登録・並び替えできます。<br>目のアイコンをクリックするとサジェストから非表示にできます。</p>
+            <p class="text-sm text-slate-600">よく使う役割や役職を登録・並び替えできます。<br>目のアイコンをクリックするとサジェストから非表示にできます。</p>
             <div class="flex flex-col gap-2 shrink-0">
-              <button type="button" onclick="setAllCustomAccountsHidden(false)"
+              <button type="button" onclick="setAllCustomRolesHidden(false)"
                 class="text-[11px] font-bold text-primary hover:text-primary-hover transition-colors px-2 py-1 bg-primary-50 rounded-md">すべて表示</button>
-              <button type="button" onclick="setAllCustomAccountsHidden(true)"
+              <button type="button" onclick="setAllCustomRolesHidden(true)"
                 class="text-[11px] font-bold text-slate-600 hover:text-slate-900 transition-colors px-2 py-1 bg-slate-100 rounded-md">すべて非表示</button>
             </div>
           </div>
@@ -565,15 +547,15 @@
         </div>
         <div class="px-6 py-4 border-t border-slate-100 shrink-0">
           <form id="add-custom-dict-form" class="flex items-center gap-2">
-            <label for="new-custom-account" class="sr-only">新しい科目を追加</label>
-            <input type="text" id="new-custom-account" placeholder="新しい科目を追加"
+            <label for="new-custom-role" class="sr-only">新しい役割/役職を追加</label>
+            <input type="text" id="new-custom-role" placeholder="新しい役割/役職を追加"
               class="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-md px-3 py-2 text-sm outline-none focus:border-primary">
             <button type="submit"
               class="px-4 py-2 rounded-md text-sm font-bold text-white bg-primary hover:bg-primary-hover transition-colors shadow-sm shrink-0 whitespace-nowrap">追加</button>
           </form>
         </div>
         <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end space-x-3 shrink-0">
-          <button onclick="closeAccountDictEditor()"
+          <button onclick="closeRoleDictEditor()"
             class="px-4 py-2 rounded-md text-sm font-medium text-slate-600 hover:bg-slate-200 transition-colors">キャンセル</button>
           <button onclick="saveCustomDictAndClose()"
             class="px-4 py-2 rounded-md text-sm font-bold text-white bg-primary hover:bg-primary-hover transition-colors shadow-sm">保存して閉じる</button>
@@ -581,9 +563,166 @@
       </div>
     </div>
 
+    <!-- 連絡先詳細編集モーダル -->
+    <div id="contact-detail-modal"
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-100 items-center justify-center p-4">
+      <div onclick="event.stopPropagation()"
+        class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col transition-colors animate-modal-in">
+        <div
+          class="px-6 py-4 border-b border-slate-100 dark:border-dark-border flex justify-between items-center shrink-0">
+          <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <svg class="w-5 h-5 text-primary">
+              <use href="#icon-pencil"></use>
+            </svg>
+            <span id="detail-modal-title">連絡先の詳細</span>
+          </h3>
+          <button onclick="closeContactDetail()"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl leading-none cursor-pointer">&times;</button>
+        </div>
+        <div class="px-6 py-5 space-y-5 overflow-y-auto flex-1">
+          <input type="hidden" id="detail-record-id">
+          <!-- 基本情報 -->
+          <div>
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-2 tracking-widest uppercase">基本情報
+            </h4>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">姓</label><input type="text"
+                  id="detail-family-name" placeholder="山田"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">名</label><input type="text"
+                  id="detail-given-name" placeholder="太郎"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">姓 (フリガナ)</label><input
+                  type="text" id="detail-family-yomi" placeholder="ヤマダ"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">名 (フリガナ)</label><input
+                  type="text" id="detail-given-yomi" placeholder="タロウ"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+            </div>
+            <div class="mt-2"><label
+                class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">ニックネーム</label><input type="text"
+                id="detail-nickname" placeholder="タケちゃん、Bobなど"
+                class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+            </div>
+          </div>
+          <!-- 組織 -->
+          <div>
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-2 tracking-widest uppercase">組織</h4>
+            <div class="space-y-2">
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">会社名</label><input type="text"
+                  id="detail-company" placeholder="株式会社〇〇"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">部署</label><input type="text"
+                    id="detail-department" placeholder="営業部"
+                    class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+                </div>
+                <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">役割/役職</label><input
+                    type="text" id="detail-job-title" placeholder="部長 / 幹事"
+                    class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 電話番号 -->
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 tracking-widest uppercase">電話番号</h4>
+              <button type="button" onclick="addDetailPhoneRow()"
+                class="text-primary text-xs font-bold hover:underline cursor-pointer">+ 追加</button>
+            </div>
+            <div id="detail-phones" class="space-y-2"></div>
+          </div>
+          <!-- メール -->
+          <div>
+            <div class="flex justify-between items-center mb-2">
+              <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 tracking-widest uppercase">メールアドレス
+              </h4>
+              <button type="button" onclick="addDetailEmailRow()"
+                class="text-primary text-xs font-bold hover:underline cursor-pointer">+ 追加</button>
+            </div>
+            <div id="detail-emails" class="space-y-2"></div>
+          </div>
+          <!-- 住所 -->
+          <div>
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-2 tracking-widest uppercase">住所</h4>
+            <div class="space-y-2">
+              <div class="grid grid-cols-2 gap-2">
+                <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">郵便番号</label><input
+                    type="text" id="detail-addr-postal" placeholder="100-0001"
+                    class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+                </div>
+                <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">都道府県</label><input
+                    type="text" id="detail-addr-region" placeholder="東京都"
+                    class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+                </div>
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">市区町村・番地</label><input
+                  type="text" id="detail-addr-street" placeholder="千代田区丸の内1-1-1"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">国</label><input type="text"
+                  id="detail-addr-country" placeholder="日本"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+            </div>
+          </div>
+          <!-- SNS -->
+          <div>
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-2 tracking-widest uppercase">SNS・Web
+            </h4>
+            <div class="space-y-2">
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">LINE</label><input type="text"
+                  id="detail-social-line" placeholder="LINE ID or URL"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">X (Twitter)</label><input
+                  type="text" id="detail-social-x" placeholder="@username"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">Instagram</label><input
+                  type="text" id="detail-social-ig" placeholder="@username"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">Webサイト</label><input
+                  type="text" id="detail-url" placeholder="https://..."
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+            </div>
+          </div>
+          <!-- その他 -->
+          <div>
+            <h4 class="text-[11px] font-bold text-slate-400 dark:text-slate-500 mb-2 tracking-widest uppercase">その他</h4>
+            <div class="space-y-2">
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">誕生日</label><input type="date"
+                  id="detail-birthday"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+              </div>
+              <div><label class="block text-xs text-slate-500 dark:text-slate-400 mb-0.5">メモ</label><textarea
+                  id="detail-note" rows="2" placeholder="自由メモ"
+                  class="w-full bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary resize-y"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          class="px-6 py-4 bg-slate-50 dark:bg-dark-surface-hover border-t border-slate-100 dark:border-dark-border flex justify-end space-x-3 shrink-0">
+          <button onclick="closeContactDetail()"
+            class="px-4 py-2 rounded-md text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-border transition-colors cursor-pointer">キャンセル</button>
+          <button onclick="saveContactDetail()"
+            class="px-4 py-2 rounded-md text-sm font-bold text-white bg-primary hover:bg-primary-hover transition-colors shadow-sm cursor-pointer">保存</button>
+        </div>
+      </div>
+    </div>
+
     <!-- パスワード入力モーダル (prompt代替) -->
     <div id="password-prompt-modal"
-      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] items-center justify-center p-4">
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-200 items-center justify-center p-4">
       <div
         class="bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col animate-modal-in">
         <div class="px-6 py-5 border-b border-slate-100 dark:border-dark-border">
@@ -593,7 +732,7 @@
           <p id="password-prompt-message" class="text-sm text-slate-600">ファイルは暗号化されています。解除パスワードを入力してください:</p>
           <input type="password" id="password-prompt-input"
             class="w-full bg-slate-50 border border-slate-200 focus:border-primary text-slate-900 text-lg px-4 py-2 rounded-md outline-none"
-            autocomplete="new-password" data-lpignore="true">
+            autocomplete="new-password" data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off">
         </div>
         <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end space-x-3">
           <button id="password-prompt-cancel"
@@ -606,19 +745,19 @@
 
     <!-- ドラッグ＆ドロップ オーバーレイ -->
     <div id="drop-overlay" onclick="this.classList.add('hidden'); this.classList.remove('flex'); dragCounter = 0;"
-      class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] items-center justify-center border-4 border-dashed border-primary transition-opacity cursor-pointer">
+      class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-200 items-center justify-center border-4 border-dashed border-primary transition-opacity cursor-pointer">
       <div class="text-center pointer-events-none">
         <svg class="w-16 h-16 text-primary mx-auto mb-4">
           <use href="#icon-folder"></use>
         </svg>
-        <h2 class="text-3xl font-extrabold text-white tracking-tight">.grind ファイルをドロップして開く</h2>
+        <h2 class="text-3xl font-extrabold text-white tracking-tight">.people / .vcf / .csv ファイルをドロップして開く</h2>
         <p class="text-slate-300 mt-2">そのまま上書き保存も可能です</p>
         <p class="text-slate-500 text-xs mt-6">※画面をクリックするとこの表示を消せます</p>
       </div>
     </div>
 
     <div id="cmd-palette" onclick="toggleCommandPalette()"
-      class="hidden fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm z-[100] items-start justify-center pt-[15vh] p-4 transition-opacity animate-modal-overlay">
+      class="hidden fixed inset-0 bg-black/20 dark:bg-black/50 backdrop-blur-sm z-100 items-start justify-center pt-[15vh] p-4 transition-opacity animate-modal-overlay">
       <!-- Raycastスタイルのモーダル -->
       <div onclick="event.stopPropagation()"
         class="bg-white/80 dark:bg-dark-surface/90 backdrop-blur-3xl ring-1 ring-slate-200 dark:ring-dark-border rounded-xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl transition-all animate-modal-in">
@@ -627,7 +766,7 @@
           <span class="text-slate-500 dark:text-slate-400"><svg class="w-5 h-5">
               <use href="#icon-search"></use>
             </svg></span>
-          <input type="text" id="cmd-input" placeholder="Type a command or search..."
+          <input type="text" id="cmd-input" placeholder="コマンド実行、または名前で検索..."
             class="bg-transparent text-slate-900 dark:text-white w-full outline-none text-xl font-medium placeholder-slate-400 font-sans">
           <span
             class="absolute right-4 text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-dark-bg px-2 py-1 rounded">ESC</span>
@@ -637,8 +776,9 @@
     </div>
 
     <!-- オートコンプリート用のデータリスト (JSで中身を動的生成) -->
-    <datalist id="account-suggestions"></datalist>
+    <datalist id="role-suggestions"></datalist>
     <datalist id="memo-suggestions"></datalist>
+    <datalist id="tag-suggestions"></datalist>
 
     <!-- JavaScriptを外部ファイルとして読み込む -->
     <script src="main.js" defer></script>
@@ -660,7 +800,7 @@
               // 強制リロードをやめ、ステータスバーで通知しユーザーのクリックを待つ
               const statusEl = document.getElementById("status");
               if (statusEl) {
-                statusEl.innerHTML = `<span class="text-blue-400">✨</span> アプリが最新版に更新されました。<a href="#" onclick="location.reload(); return false;" class="underline ml-2 font-bold cursor-pointer">リロードして適用</a>`;
+                statusEl.innerHTML = `<span class="text-blue-400">✨</span> アプリが最新版に更新されました。<a href="#" onclick="if(typeof isDirty !== 'undefined' && isDirty && !confirm('未保存の変更があります。リロードすると失われる可能性があります。リロードしますか？')) return false; location.reload(); return false;" class="underline ml-2 font-bold cursor-pointer">リロードして適用</a>`;
                 statusEl.className = "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
                 statusEl.style.pointerEvents = "auto";
               }

@@ -1,4 +1,4 @@
-# GrindMoney AI Rules
+# GrindPeople AI Rules
 
 ## 1. Environment & Architecture
 
