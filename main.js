@@ -1097,7 +1097,10 @@ async function importVCardFile(file) {
     db.run("COMMIT;");
     setDirty(true);
     currentActiveTag = null;
-    alert(`${contacts.length} 件の連絡先をインポートしました。`);
+    showToast(
+      `${contacts.length} 件の連絡先をインポートしました`,
+      '<span class="text-green-400">✨</span>',
+    );
   } catch (err) {
     db.run("ROLLBACK;");
     alert("vCardインポート中にエラーが発生しました。");
@@ -1694,8 +1697,12 @@ function toggleAllBlocks(collapse) {
     collapsedBlocks.clear();
   }
 
-  // 画面を一括で再描画（ループで個別にアニメーションさせると重いため、即時反映させる）
-  renderData();
+  // ✅ View Transition API を使って、滑らかに一斉開閉させる
+  if (document.startViewTransition) {
+    document.startViewTransition(() => renderData());
+  } else {
+    renderData();
+  }
 }
 
 // --- カテゴリ（タグ）フィルター制御 ---
@@ -1970,6 +1977,22 @@ function renderData(focusBlockId = null) {
 
     const isFilterActive = currentActiveTag !== null;
 
+    // ✅ File System Access APIの対応状況を自動判定
+    const isFsaSupported = "showSaveFilePicker" in window;
+    const browserNoticeHtml = isFsaSupported
+      ? `<div class="mt-8 flex flex-col items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+           <p class="font-bold flex items-center gap-1">
+             <svg class="w-3.5 h-3.5"><use href="#icon-sparkles"></use></svg> 推奨ブラウザ環境 (Chrome / Edge)
+           </p>
+           <p class="opacity-80">ファイルの直接上書き保存（File System API）が有効です</p>
+         </div>`
+      : `<div class="mt-8 flex flex-col items-center gap-1.5 text-[11px] text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-4 py-2.5 rounded-xl border border-orange-200 dark:border-orange-800/50">
+           <p class="font-bold flex items-center gap-1 text-xs">
+             ⚠️ 推奨ブラウザ: Chrome または Edge
+           </p>
+           <p class="opacity-90 max-w-[260px] leading-relaxed">現在のブラウザは直接上書き保存に非対応のため、保存時に毎回ダウンロードが発生します。</p>
+         </div>`;
+
     container.innerHTML = `
       <div id="empty-state" class="flex flex-col items-center justify-center py-24 sm:py-32 text-center relative overflow-hidden rounded-3xl border border-slate-200/50 dark:border-dark-border/50 bg-slate-50/50 dark:bg-dark-surface/30 backdrop-blur-xl shadow-inner transition-all animate-fade-in group">
         <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] opacity-50 dark:invert"></div>
@@ -1985,6 +2008,7 @@ function renderData(focusBlockId = null) {
           <button onclick="document.getElementById('new-block-memo').focus()" class="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-2.5 rounded-full text-sm font-bold shadow-xl shadow-slate-900/20 dark:shadow-white/10 hover:shadow-2xl hover:-translate-y-0.5 transition-all active:scale-95 flex items-center gap-2">
             <span class="text-xl leading-none font-light">+</span> 新しいブロックを作る
           </button>
+          ${browserNoticeHtml}
           `
               : ""
           }
@@ -3668,12 +3692,10 @@ function executeCSVImport() {
     // インポートしたデータが見えなくなるのを防ぐため、フィルターを解除
     currentActiveTag = null;
 
-    alert(
-      `${successCount} 件のデータをインポートしました。` +
-        (skipCount > 0
-          ? `\n（${skipCount} 件の重複データは自動的にスキップされました）`
-          : ""),
-    );
+    const msg =
+      `${successCount} 件のデータをインポートしました` +
+      (skipCount > 0 ? `（${skipCount}件の重複をスキップ）` : "");
+    showToast(msg, '<span class="text-green-400">✨</span>');
   } catch (err) {
     db.run("ROLLBACK;");
     alert("インポート中にエラーが発生しました。");
@@ -4540,6 +4562,14 @@ document.addEventListener("keydown", (e) => {
     const input = document.getElementById("cmd-input");
 
     const filtered = getFilteredCommands(input.value);
+
+    // ✅ 結果が0件の時の NaN クラッシュを防止
+    if (
+      filtered.length === 0 &&
+      (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")
+    ) {
+      return;
+    }
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
