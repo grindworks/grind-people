@@ -2,6 +2,7 @@ let db = null; // SQLiteデータベースのインスタンス
 let SQL = null; // sql.jsのモジュール
 let fileHandle = null; // File System Access APIのファイルハンドル
 let isDirty = false; // 未保存の変更があるかどうか
+window.getIsDirty = () => isDirty;
 let pendingCSVData = []; // CSVパース結果の一時保存
 let lastUsedDates = {}; // ブロックごとの最終使用日付を記憶
 let pendingCSVBuffer = null; // CSVのバイナリデータ
@@ -21,6 +22,20 @@ const isMac =
   navigator.userAgent.toUpperCase().indexOf("MAC") >= 0;
 
 let customRoleDict = []; // カスタム役職辞書の配列
+
+// --- スクロールロック制御 (Layout Shift対策) ---
+function lockScroll() {
+  const scrollbarWidth =
+    window.innerWidth - document.documentElement.clientWidth;
+  if (scrollbarWidth > 0) {
+    document.body.style.paddingRight = `${scrollbarWidth}px`;
+  }
+  document.body.style.overflow = "hidden";
+}
+function unlockScroll() {
+  document.body.style.paddingRight = "";
+  document.body.style.overflow = "";
+}
 
 // --- ダークモード管理 ---
 function initDarkMode() {
@@ -282,14 +297,14 @@ function requestPasswordPrompt(message) {
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     document.getElementById("app-ui")?.setAttribute("inert", "");
-    document.body.style.overflow = "hidden";
+    lockScroll();
     setTimeout(() => input.focus(), 100);
 
     const cleanup = () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
       document.getElementById("app-ui")?.removeAttribute("inert");
-      document.body.style.overflow = "";
+      unlockScroll();
       btnSubmit.removeEventListener("click", onSubmit);
       btnCancel.removeEventListener("click", onCancel);
       input.removeEventListener("keydown", onKeyDown);
@@ -313,6 +328,73 @@ function requestPasswordPrompt(message) {
     btnSubmit.addEventListener("click", onSubmit);
     btnCancel.addEventListener("click", onCancel);
     input.addEventListener("keydown", onKeyDown);
+  });
+}
+
+// セキュアな汎用プロンプト・確認ダイアログ (ネイティブ prompt/confirm の代替)
+function requestCustomPrompt(
+  title,
+  message,
+  defaultValue = "",
+  isConfirm = false,
+) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("generic-dialog-modal");
+    const titleEl = document.getElementById("generic-dialog-title");
+    const msgEl = document.getElementById("generic-dialog-message");
+    const input = document.getElementById("generic-dialog-input");
+    const btnSubmit = document.getElementById("generic-dialog-submit");
+    const btnCancel = document.getElementById("generic-dialog-cancel");
+
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+
+    if (isConfirm) {
+      input.classList.add("hidden");
+    } else {
+      input.classList.remove("hidden");
+      input.value = defaultValue;
+    }
+
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    document.getElementById("app-ui")?.setAttribute("inert", "");
+    lockScroll();
+
+    if (!isConfirm) {
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 100);
+    } else {
+      setTimeout(() => btnSubmit.focus(), 100);
+    }
+
+    const cleanup = () => {
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+      document.getElementById("app-ui")?.removeAttribute("inert");
+      unlockScroll();
+    };
+
+    btnSubmit.onclick = () => {
+      cleanup();
+      resolve(isConfirm ? true : input.value);
+    };
+    btnCancel.onclick = () => {
+      cleanup();
+      resolve(isConfirm ? false : null);
+    };
+    input.onkeydown = (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        btnSubmit.click();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        btnCancel.click();
+      }
+    };
   });
 }
 
@@ -426,6 +508,11 @@ function handleSmartPaste(event) {
 
       setDirty(true);
       showToast("署名を解析して自動入力しました", "✨");
+
+      // ★ 解析完了後、連絡先欄へフォーカスを移し Enter で直ぐに登録できるようにする
+      setTimeout(() => {
+        if (contactInput) contactInput.focus();
+      }, 10);
     }
   }
 }
@@ -955,7 +1042,6 @@ function parseVCardText(text) {
           contact.fields.push({ key: "birthday", value, type: "other" });
           break;
         case "NOTE":
-          contact.fields.push({ key: "note", value, type: "other" });
           const unescapedNote = value
             .replace(/\\n/gi, "\n")
             .replace(/\\,/g, ",");
@@ -1162,8 +1248,17 @@ async function initSQLite() {
                 alert(
                   "起動をキャンセルしました。リロードしてやり直してください。",
                 );
-                document.body.innerHTML =
-                  "<h1 style='text-align:center; margin-top:20vh;'>保護のため停止しました。<br>リロードしてください。</h1>";
+                document.getElementById("app-ui")?.classList.add("hidden");
+                const errorScreen =
+                  document.getElementById("fatal-error-screen");
+                if (errorScreen) {
+                  errorScreen.querySelector("h2").textContent =
+                    "保護のため停止しました";
+                  errorScreen.querySelector("p").innerHTML =
+                    "セキュリティ保護のためアプリの起動を中断しました。<br>リロードしてもう一度やり直してください。";
+                  errorScreen.classList.remove("hidden");
+                  errorScreen.classList.add("flex");
+                }
                 throw new Error("User canceled decryption");
               }
               attempt++;
@@ -1223,6 +1318,9 @@ async function initSQLite() {
       showToast("SQLite起動完了", '<span class="text-green-400">●</span>');
     }
 
+    // SQLiteエンジンのローディング表示を消す
+    hideStatus();
+
     // DB内の設定を読み込んでUIに反映
     loadSettingsFromDb();
 
@@ -1245,6 +1343,8 @@ async function initSQLite() {
       errorScreen.classList.remove("hidden");
       errorScreen.classList.add("flex");
     }
+    // エラー時もローディング表示を消す
+    hideStatus();
   }
 }
 
@@ -1281,10 +1381,19 @@ function hideStatus() {
   }, 3000);
 }
 
-// トースト通知を表示するヘルパー関数
+// トースト通知を表示するヘルパー関数 (スタック対応)
 function showToast(message, iconHtml = "✅", type = "normal") {
-  const statusEl = document.getElementById("status");
-  if (!statusEl) return;
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    container.setAttribute("aria-live", "polite");
+    container.className =
+      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none w-full px-4 max-w-md";
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement("div");
 
   const bgClass =
     type === "error"
@@ -1293,11 +1402,20 @@ function showToast(message, iconHtml = "✅", type = "normal") {
         ? "bg-red-900/90 border-red-700/50"
         : "bg-slate-800/90 border-slate-700/50";
 
-  statusEl.innerHTML = `${iconHtml} <span>${message}</span>`;
-  statusEl.className = `fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100 ${bgClass}`;
-  statusEl.style.pointerEvents = "auto";
+  toast.innerHTML = `${iconHtml} <span class="break-all line-clamp-2">${message}</span>`;
+  toast.className = `backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border transition-all duration-300 flex items-center gap-2 animate-toast-in ${bgClass}`;
 
-  hideStatus();
+  container.appendChild(toast);
+
+  // 画面が埋まるのを防ぐため、最大表示数を3個に制限
+  while (container.childElementCount > 3) {
+    container.firstChild.remove();
+  }
+
+  setTimeout(() => {
+    toast.classList.replace("animate-toast-in", "animate-toast-out");
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
 // 2. ブロックまたはアイテムの追加
@@ -1477,9 +1595,21 @@ function updateRecord(id, field, newValue, element) {
     return;
   }
 
-  let val = newValue.trim();
+  // ★ 改行をスペースに置換してサニタイズ (Shift+Enter等によるレイアウト崩れ対策)
+  let val = newValue.replace(/[\r\n]+/g, " ").trim();
   if (field === "contact_info" && val === "") {
     val = null;
+  }
+
+  if (field === "memo") {
+    // 氏名を直接編集した場合は、裏側にある古い姓名データをリセットし、整合性を保つ
+    clearContactFieldsByKey(id, "family_name");
+    clearContactFieldsByKey(id, "given_name");
+    clearContactFieldsByKey(id, "middle_name");
+    clearContactFieldsByKey(id, "name_prefix");
+    clearContactFieldsByKey(id, "name_suffix");
+    clearContactFieldsByKey(id, "family_name_yomi");
+    clearContactFieldsByKey(id, "given_name_yomi");
   }
 
   // 変更があるかチェック (内容が変わっていない場合は何もしない)
@@ -1518,6 +1648,30 @@ function updateRecord(id, field, newValue, element) {
       const subType = val.includes("@") ? "work" : "mobile";
       setContactField(id, type, val, subType, 0);
     }
+  }
+
+  // ★ ゴースト行（氏名・連絡先・役割がすべて空の明細）の自動クリーンアップ
+  let checkGhostStmt;
+  try {
+    checkGhostStmt = db.prepare(
+      "SELECT parent_id, memo, contact_info, role FROM records WHERE id = ?",
+    );
+    checkGhostStmt.bind([id]);
+    if (checkGhostStmt.step()) {
+      const [pId, m, cInfo, r] = checkGhostStmt.get();
+      if (
+        pId !== null &&
+        (!m || m.trim() === "") &&
+        (!cInfo || cInfo.trim() === "") &&
+        (!r || r.trim() === "")
+      ) {
+        deleteRecord(id, true); // forceフラグ付きで確認ダイアログなしでサイレント削除
+        return; // UIの再描画等は deleteRecord 側に委ねるためここで終了
+      }
+    }
+  } catch (e) {
+  } finally {
+    if (checkGhostStmt) checkGhostStmt.free();
   }
 
   setDirty(true);
@@ -1564,7 +1718,7 @@ function updateRecord(id, field, newValue, element) {
     if (element) {
       element.innerText = val !== null ? val : "";
     }
-  } else if (field === "tags") {
+  } else if (field === "tags" || (field === "memo" && /[#＃]/.test(val))) {
     // タグが変更されたらUIを即時反映させるため再描画
     // 他ボタンのクリックイベントを阻害しないよう、再描画を遅延させる
     setTimeout(() => {
@@ -1575,8 +1729,8 @@ function updateRecord(id, field, newValue, element) {
         (activeEl.tagName === "INPUT" ||
           activeEl.hasAttribute("contenteditable"));
 
-      // フィルター中、または入力中でない場合のみ即時再描画
-      if (currentActiveTag || !isTypingElsewhere) {
+      // ★ 入力中でない場合のみ即時再描画 (タイピング中のDOM再構築を防止し競合を回避)
+      if (!isTypingElsewhere) {
         renderData();
         if (focusSelector) {
           requestAnimationFrame(() => {
@@ -2143,7 +2297,7 @@ function renderData(focusBlockId = null) {
 
   if (focusBlockId) {
     const targetInput = document.querySelector(
-      `#block-form-${focusBlockId} .item-memo`,
+      `#block-form-${focusBlockId} .item-role`,
     );
     if (targetInput) {
       targetInput.focus({ preventScroll: false });
@@ -2213,17 +2367,17 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const avatarSvg = generateAvatarSVG(item.memo || "", item.id);
     const avatarHtml = `<div class="w-8 h-8 rounded-full overflow-hidden shrink-0 mr-3 shadow-sm border border-white/20 hidden sm:block">${avatarSvg}</div>`;
     const roleStr = item.role || "";
-    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="役割/役職" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-20 shrink-0 text-center placeholder-blue-300">`;
+    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="役割/役職" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.closest('.group/item').querySelector('[data-field=\\'memo\\']').focus();}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-20 shrink-0 text-center placeholder-blue-300">`;
 
     itemsHtml += `
       <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 dark:border-dark-border/30 group/item hover:bg-slate-50/80 dark:hover:bg-dark-surface-hover transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${avatarHtml}
           ${roleDisp}
-            <span data-id="${item.id}" data-field="memo" contenteditable="true" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_名前を入力'] empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.memo)}</span>
+            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_名前を入力'] empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_電話/Email'] empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.contact_info || "")}</span>
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_電話/Email'] empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
             <button onclick="shareContact(${item.id})" aria-label="共有" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-1 transition-colors" title="vCardを共有">
               <svg class="w-4 h-4"><use href="#icon-share"></use></svg>
@@ -2256,18 +2410,21 @@ function updateOrCreateBlockElement(block, existingEl = null) {
       <div class="flex flex-col overflow-hidden w-full">
         <div class="flex items-center gap-3">
           <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
-          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:content-['✎_グループ名'] empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(block.memo)}</h2>
+          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ form.querySelector('.item-role').focus(); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:content-['✎_グループ名'] empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(block.memo)}</h2>
         </div>
 
         <!-- ★ 専用タグ入力欄 -->
         <div class="flex items-center gap-1.5 mt-1.5 ml-8 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity" onclick="event.stopPropagation()">
           <svg class="w-3.5 h-3.5 text-slate-400 shrink-0"><use href="#icon-tag"></use></svg>
-          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" value="${escapeHtml(block.tags || "")}" placeholder="カテゴリ・タグを追加 (例: ビジネス)" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
+          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="カテゴリ・タグを追加 (例: ビジネス)" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
         </div>
       </div>
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 dark:text-white text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">人</span></div>
         <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-8 gap-1">
+          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="並べ替え" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-dark-surface-hover hover:text-slate-600 dark:hover:text-slate-300 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="古い順に並べ替える">
+            <svg class="w-4 h-4"><use href="#icon-sort"></use></svg>
+          </button>
           <button onclick="event.stopPropagation(); shareBlock(${block.id})" aria-label="ブロックを共有" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="グループ全員を共有">
             <svg class="w-5 h-5"><use href="#icon-share"></use></svg>
           </button>
@@ -2293,13 +2450,13 @@ function updateOrCreateBlockElement(block, existingEl = null) {
           <button type="submit" aria-label="明細を追加" class="text-primary bg-primary/10 hover:bg-primary/20 rounded-full w-8 h-8 flex items-center justify-center text-xl leading-none font-light sm:hidden transition-colors outline-none focus:ring-2 focus:ring-primary/50 shrink-0">+</button>
 
           <!-- ★ カレンダーインプットを完全撤廃し、役職入力を左端に配置 -->
-          <input type="text" placeholder="役割/役職" value="" list="role-suggestions" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-16 sm:w-24 shrink-0 text-sm outline-none text-center min-w-0">
+          <input type="text" placeholder="役割/役職" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-16 sm:w-24 shrink-0 text-sm outline-none text-center min-w-0">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
-          <input type="text" placeholder="氏名を追加... (署名をペースト可)" list="memo-suggestions" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-0">
+          <input type="text" placeholder="氏名を追加... (署名をペースト可)" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="署名テキストをペーストすると自動解析します"><use href="#icon-sparkles"></use></svg>
-          <input type="text" inputmode="email" placeholder="Tel/Email..." class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-28 sm:w-48 shrink-0 text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
+          <input type="text" inputmode="email" placeholder="Tel/Email..." spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-28 sm:w-48 shrink-0 text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">追加</button>
       </form>
@@ -2310,7 +2467,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
 }
 
 // --- テンプレート（1Shot生成）機能 ---
-function saveTemplate(blockId) {
+async function saveTemplate(blockId) {
   if (!db) return;
 
   // ブロックのタイトルを取得
@@ -2349,7 +2506,8 @@ function saveTemplate(blockId) {
     if (itemsStmt) itemsStmt.free();
   }
 
-  let tplName = prompt(
+  let tplName = await requestCustomPrompt(
+    "テンプレートの保存",
     "このブロックをテンプレートとして保存します。\n呼び出し用の名前を入力してください:",
     blockMemo + " (雛形)",
   );
@@ -2452,7 +2610,7 @@ function insertTemplate(templateId) {
 }
 
 // 3.5 データの削除（DELETE文の実行）
-function deleteRecord(id) {
+function deleteRecord(id, force = false) {
   if (!db) return;
 
   // ブロックかメンバーかを判定し、子供の数を数える
@@ -2473,12 +2631,14 @@ function deleteRecord(id) {
     pStmt.free();
   } catch (e) {}
 
-  const msg =
-    isParent && childCount > 0
-      ? `⚠️ 警告\n含まれるメンバー ${childCount} 人をすべて削除しますか？\nこの操作は元に戻せません。`
-      : "この記録を削除しますか？";
+  if (!force) {
+    const msg =
+      isParent && childCount > 0
+        ? `⚠️ 警告\n含まれるメンバー ${childCount} 人をすべて削除しますか？\nこの操作は元に戻せません。`
+        : "この記録を削除しますか？";
 
-  if (!confirm(msg)) return;
+    if (!confirm(msg)) return;
+  }
 
   // contact_fields の関連データも連動削除
   try {
@@ -2990,7 +3150,7 @@ function showExportModal() {
 
   modal.classList.remove("hidden");
   modal.classList.add("flex");
-  document.body.style.overflow = "hidden";
+  lockScroll();
   document.getElementById("app-ui")?.setAttribute("inert", "");
 }
 
@@ -2998,7 +3158,7 @@ function closeExportModal() {
   const modal = document.getElementById("export-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
 }
 
@@ -3014,9 +3174,12 @@ function exportCSV(format = "vcard") {
 
   if (format === "vcard") {
     exportVCard();
+  } else if (format === "google_csv") {
+    exportGoogleCSV();
+  } else if (format === "outlook_csv") {
+    exportOutlookCSV();
   } else {
-    // vCard以外は一旦アラート。必要に応じて実装を追加。
-    alert("CSVエクスポートは現在準備中です。vCard形式をお使いください。");
+    alert("選択されたフォーマットはサポートされていません。");
   }
 }
 
@@ -3218,34 +3381,13 @@ function triggerVCardDownload(vcardData, filenameBase) {
 function exportVCard() {
   if (!db) return;
 
-  let whereClause = "";
-  let params = [];
-
-  if (currentActiveTag) {
-    whereClause = ` AND (c.memo LIKE ? OR c.memo LIKE ? OR p.memo LIKE ? OR p.memo LIKE ? OR c.tags LIKE ? OR c.tags LIKE ? OR p.tags LIKE ? OR p.tags LIKE ?)`;
-    // 全角半角両方に対応
-    const tagHalf = currentActiveTag.replace("＃", "#");
-    const tagFull = currentActiveTag.replace("#", "＃");
-    params.push(
-      `%${tagHalf}%`,
-      `%${tagFull}%`,
-      `%${tagHalf}%`,
-      `%${tagFull}%`,
-      `%${tagHalf}%`,
-      `%${tagFull}%`,
-      `%${tagHalf}%`,
-      `%${tagFull}%`,
-    );
-  }
-
   // c.id, memo=氏名, role=役割, contact_info=電話・Email, parent.memo=会社・チーム名, タグ情報
-  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL${whereClause} ORDER BY c.id ASC`;
+  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC`;
 
   const values = [];
   let exportStmt;
   try {
     exportStmt = db.prepare(query);
-    exportStmt.bind(params);
     while (exportStmt.step()) {
       values.push(exportStmt.get());
     }
@@ -3268,7 +3410,43 @@ function exportVCard() {
     org_tags: row[6],
     fields: getContactFields(row[0]),
   }));
-  const vcardData = generateVCardData(items);
+
+  let filteredItems = items;
+  if (currentActiveTag) {
+    const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
+    filteredItems = items.filter((item) => {
+      const itemMemoTags = (
+        item.name.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
+      ).map((t) => t.replace(/[#＃]/, ""));
+      const orgMemoTags = (
+        item.org.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
+      ).map((t) => t.replace(/[#＃]/, ""));
+      const itemFieldTags = (item.item_tags || "")
+        .split(/[,、\s]+/)
+        .map((t) => t.trim().replace(/^[#＃]/, ""))
+        .filter(Boolean);
+      const orgFieldTags = (item.org_tags || "")
+        .split(/[,、\s]+/)
+        .map((t) => t.trim().replace(/^[#＃]/, ""))
+        .filter(Boolean);
+      const allTags = [
+        ...new Set([
+          ...itemMemoTags,
+          ...orgMemoTags,
+          ...itemFieldTags,
+          ...orgFieldTags,
+        ]),
+      ];
+      return allTags.includes(activeTagRaw);
+    });
+  }
+
+  if (filteredItems.length === 0) {
+    alert("エクスポートする連絡先がありません。");
+    return;
+  }
+
+  const vcardData = generateVCardData(filteredItems);
   triggerVCardDownload(vcardData, "contacts_all");
 }
 
@@ -3328,7 +3506,7 @@ function showCSVModal() {
   const modal = document.getElementById("csv-mapping-modal");
   modal.classList.remove("hidden");
   modal.classList.add("flex");
-  document.body.style.overflow = "hidden";
+  lockScroll();
   document.getElementById("app-ui")?.setAttribute("inert", "");
   updateCSVPreview(); // プレビューとマッピングを初期描画
 }
@@ -3523,7 +3701,7 @@ function closeCSVModal() {
   const modal = document.getElementById("csv-mapping-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
   pendingCSVData = [];
   pendingCSVBuffer = null;
@@ -3531,7 +3709,8 @@ function closeCSVModal() {
 
 function executeCSVImport() {
   const mapDate = parseInt(document.getElementById("map-date").value, 10);
-  const mapRole = parseInt(document.getElementById("map-role").value, 10);
+  const mapRoleEl = document.getElementById("map-role");
+  const mapRole = mapRoleEl ? parseInt(mapRoleEl.value, 10) : -1;
   const mapMemo = parseInt(document.getElementById("map-memo").value, 10);
   const mapContact = parseInt(document.getElementById("map-contact").value, 10);
   const skipRows =
@@ -3799,6 +3978,21 @@ function showContactDetail(recordId) {
   document.getElementById("detail-modal-title").textContent =
     name || "連絡先の詳細";
 
+  let orgName = "";
+  try {
+    let pStmt = db.prepare(
+      "SELECT p.memo FROM records c JOIN records p ON c.parent_id = p.id WHERE c.id = ?",
+    );
+    pStmt.bind([recordId]);
+    if (pStmt.step()) orgName = pStmt.get()[0] || "";
+    pStmt.free();
+  } catch (e) {}
+
+  const companyInput = document.getElementById("detail-company");
+  if (companyInput) {
+    companyInput.placeholder = orgName ? `(自動: ${orgName})` : "株式会社〇〇";
+  }
+
   const fields = getContactFields(recordId);
 
   // 単一フィールドをセット
@@ -3875,7 +4069,7 @@ function showContactDetail(recordId) {
 
   modal.classList.remove("hidden");
   modal.classList.add("flex");
-  document.body.style.overflow = "hidden";
+  lockScroll();
   document.getElementById("app-ui")?.setAttribute("inert", "");
 }
 
@@ -3883,7 +4077,7 @@ function closeContactDetail() {
   const modal = document.getElementById("contact-detail-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
   if (preDetailActiveElement) {
     preDetailActiveElement.focus();
@@ -3978,11 +4172,12 @@ function saveContactDetail() {
 
   // records.role も同期
   const jobTitle = document.getElementById("detail-job-title")?.value?.trim();
-  if (jobTitle) {
-    try {
-      db.run("UPDATE records SET role = ? WHERE id = ?", [jobTitle, recordId]);
-    } catch (e) {}
-  }
+  try {
+    db.run("UPDATE records SET role = ? WHERE id = ?", [
+      jobTitle || null,
+      recordId,
+    ]);
+  } catch (e) {}
 
   // 姓・名からフルネームを生成して records.memo を同期
   const familyName =
@@ -3990,11 +4185,12 @@ function saveContactDetail() {
   const givenName =
     document.getElementById("detail-given-name")?.value?.trim() || "";
   const fullName = (familyName + " " + givenName).trim();
-  if (fullName) {
-    try {
-      db.run("UPDATE records SET memo = ? WHERE id = ?", [fullName, recordId]);
-    } catch (e) {}
-  }
+  try {
+    db.run("UPDATE records SET memo = ? WHERE id = ?", [
+      fullName || null,
+      recordId,
+    ]);
+  } catch (e) {}
 
   setDirty(true);
   closeContactDetail();
@@ -4290,7 +4486,7 @@ function toggleCommandPalette() {
   if (isCommandPaletteOpen) {
     palette.classList.remove("hidden");
     palette.classList.add("flex");
-    document.body.style.overflow = "hidden";
+    lockScroll();
     document.getElementById("app-ui")?.setAttribute("inert", "");
     input.value = "";
     selectedCommandIndex = 0;
@@ -4304,7 +4500,7 @@ function toggleCommandPalette() {
   } else {
     palette.classList.add("hidden");
     palette.classList.remove("flex");
-    document.body.style.overflow = "";
+    unlockScroll();
     document.getElementById("app-ui")?.removeAttribute("inert");
     if (prePaletteActiveElement) {
       prePaletteActiveElement.focus();
@@ -4333,8 +4529,15 @@ function getDynamicCommands() {
             icon: '<svg class="w-5 h-5 text-red-400"><use href="#icon-trash"></use></svg>',
             title: `<span class="text-slate-400">[削除] ${escapeHtml(row[1])}</span>`,
             keepOpen: true, // パレットを閉じない設定
-            action: () => {
-              if (confirm(`テンプレート「${row[1]}」を削除しますか？`)) {
+            action: async () => {
+              if (
+                await requestCustomPrompt(
+                  "テンプレートの削除",
+                  `テンプレート「${row[1]}」を削除しますか？`,
+                  "",
+                  true,
+                )
+              ) {
                 db.run("DELETE FROM templates WHERE id = ?", [row[0]]);
                 setDirty(true);
                 // インデックスのオーバーフローを防止
@@ -4370,10 +4573,14 @@ function getFilteredCommands(query) {
         .map(() => "(LOWER(c.memo) LIKE ? OR LOWER(c.contact_info) LIKE ?)")
         .join(" AND ");
       const params = terms.flatMap((t) => [`%${t}%`, `%${t}%`]);
+
+      const pCond = terms.map(() => "(LOWER(memo) LIKE ?)").join(" AND ");
+      const pParams = terms.flatMap((t) => [`%${t}%`]);
+
       stmt = db.prepare(
-        `SELECT c.id, c.memo, p.memo, p.id FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL AND ${conditions} LIMIT 5`,
+        `SELECT id, memo, '', id FROM records WHERE parent_id IS NULL AND ${pCond} UNION SELECT c.id, c.memo, p.memo, p.id FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL AND ${conditions} LIMIT 8`,
       );
-      stmt.bind(params);
+      stmt.bind([...pParams, ...params]);
       while (stmt.step()) {
         const [id, name, org, parentId] = stmt.get();
         filtered.unshift({
@@ -4773,7 +4980,7 @@ function showRoleDictEditor() {
   const modal = document.getElementById("role-dict-editor-modal");
   modal.classList.remove("hidden");
   modal.classList.add("flex");
-  document.body.style.overflow = "hidden";
+  lockScroll();
   document.getElementById("app-ui")?.setAttribute("inert", "");
   renderCustomDictEditor();
 
@@ -4799,7 +5006,7 @@ function closeRoleDictEditor() {
   const modal = document.getElementById("role-dict-editor-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
   // 変更を保存せずに閉じた場合は、元の状態に戻す
   loadCustomDict();
@@ -4811,7 +5018,7 @@ function saveCustomDictAndClose() {
   const modal = document.getElementById("role-dict-editor-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
 }
 
@@ -4954,7 +5161,7 @@ function showTagModal(tag, data) {
 
   modal.classList.remove("hidden");
   modal.classList.add("flex");
-  document.body.style.overflow = "hidden";
+  lockScroll();
   document.getElementById("app-ui")?.setAttribute("inert", "");
 }
 
@@ -4962,7 +5169,7 @@ function closeTagModal() {
   const modal = document.getElementById("tag-modal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  document.body.style.overflow = "";
+  unlockScroll();
   document.getElementById("app-ui")?.removeAttribute("inert");
 }
 
@@ -5005,7 +5212,8 @@ function loadSettingsFromDb() {
 window.addEventListener("beforeunload", (e) => {
   if (isDirty) {
     e.preventDefault();
-    e.returnValue = "";
+    e.returnValue = "未保存の変更があります";
+    return "未保存の変更があります";
   }
 });
 
