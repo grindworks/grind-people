@@ -4424,6 +4424,12 @@ const commandsList = [
     action: () => exportVCard(),
   },
   {
+    id: "copy_prompt",
+    icon: '<svg class="w-5 h-5"><use href="#icon-bot"></use></svg>',
+    title: "AI整形用プロンプトをコピー (BYO-AI)",
+    action: () => copyAIPrompt(),
+  },
+  {
     id: "markdown",
     icon: '<svg class="w-5 h-5"><use href="#icon-copy"></use></svg>',
     title: "Markdownとして一覧をコピー",
