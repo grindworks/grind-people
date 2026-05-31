@@ -37,6 +37,21 @@ function unlockScroll() {
   document.body.style.overflow = "";
 }
 
+// --- 画面背面のUIを完全にロックするヘルパー ---
+function toggleMainUI(disabled) {
+  const els = [
+    document.getElementById("app-ui"),
+    document.getElementById("toc-container"),
+    document.querySelector("header"),
+  ];
+  els.forEach((el) => {
+    if (el) {
+      if (disabled) el.setAttribute("inert", "");
+      else el.removeAttribute("inert");
+    }
+  });
+}
+
 // --- ダークモード管理 ---
 function initDarkMode() {
   const saved = localStorage.getItem("theme");
@@ -48,6 +63,8 @@ function initDarkMode() {
   } else {
     document.documentElement.classList.remove("dark");
   }
+  document.documentElement.style.colorScheme =
+    document.documentElement.classList.contains("dark") ? "dark" : "light";
   updateMetaThemeColor(document.documentElement.classList.contains("dark"));
 }
 
@@ -61,12 +78,13 @@ function toggleDarkMode() {
 
 function executeThemeToggle() {
   const isDark = document.documentElement.classList.toggle("dark");
+  document.documentElement.style.colorScheme = isDark ? "dark" : "light";
   localStorage.setItem("theme", isDark ? "dark" : "light");
   updateMetaThemeColor(isDark);
   // DBが初期化済みなら設定も保存
   if (db) {
     try {
-      setDbSetting("theme", isDark ? "dark" : "light");
+      setDbSetting("theme", isDark ? "dark" : "light", false); // 変更をUIに警告しない
     } catch (e) {}
   }
 }
@@ -90,7 +108,7 @@ window
       updateMetaThemeColor(isDark);
       if (db) {
         try {
-          setDbSetting("theme", isDark ? "dark" : "light");
+          setDbSetting("theme", isDark ? "dark" : "light", false);
         } catch (err) {}
       }
     }
@@ -114,14 +132,14 @@ function getDbSetting(key, defaultValue = null) {
   return defaultValue;
 }
 
-function setDbSetting(key, value) {
+function setDbSetting(key, value, markDirty = true) {
   if (!db) return;
   try {
     db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [
       key,
       value,
     ]);
-    setDirty(true);
+    if (markDirty) setDirty(true);
   } catch (e) {
     console.error("Setting write error:", e);
   }
@@ -273,6 +291,23 @@ function setDirty(state) {
 }
 
 // --- 共通ユーティリティ ---
+window.focusAndSelectAll = function (el) {
+  if (!el) return;
+  el.focus();
+  if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+    el.select();
+  } else if (
+    typeof window.getSelection !== "undefined" &&
+    typeof document.createRange !== "undefined"
+  ) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+};
+
 function escapeHtml(unsafe) {
   return (unsafe ?? "")
     .toString()
@@ -296,15 +331,27 @@ function requestPasswordPrompt(message) {
     input.value = "";
     modal.classList.remove("hidden");
     modal.classList.add("flex");
-    document.getElementById("app-ui")?.setAttribute("inert", "");
+    toggleMainUI(true);
     lockScroll();
     setTimeout(() => input.focus(), 100);
 
     const cleanup = () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
-      document.getElementById("app-ui")?.removeAttribute("inert");
-      unlockScroll();
+      // 他のモーダルやパレットが開いている場合は背景ロック解除をスキップ
+      if (
+        !isCommandPaletteOpen &&
+        document
+          .getElementById("csv-mapping-modal")
+          .classList.contains("hidden") &&
+        document.getElementById("export-modal").classList.contains("hidden") &&
+        document
+          .getElementById("role-dict-editor-modal")
+          .classList.contains("hidden")
+      ) {
+        toggleMainUI(false);
+        unlockScroll();
+      }
       btnSubmit.removeEventListener("click", onSubmit);
       btnCancel.removeEventListener("click", onCancel);
       input.removeEventListener("keydown", onKeyDown);
@@ -321,8 +368,14 @@ function requestPasswordPrompt(message) {
       resolve(null);
     };
     const onKeyDown = (e) => {
-      if (e.key === "Enter") onSubmit();
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        onSubmit();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
     };
 
     btnSubmit.addEventListener("click", onSubmit);
@@ -331,12 +384,12 @@ function requestPasswordPrompt(message) {
   });
 }
 
-// セキュアな汎用プロンプト・確認ダイアログ (ネイティブ prompt/confirm の代替)
-function requestCustomPrompt(
+// セキュアな汎用プロンプト・確認・通知ダイアログ (ネイティブ prompt/confirm/alert の代替)
+window.requestCustomPrompt = function (
   title,
   message,
   defaultValue = "",
-  isConfirm = false,
+  mode = "prompt",
 ) {
   return new Promise((resolve) => {
     const modal = document.getElementById("generic-dialog-modal");
@@ -347,21 +400,27 @@ function requestCustomPrompt(
     const btnCancel = document.getElementById("generic-dialog-cancel");
 
     titleEl.textContent = title;
-    msgEl.textContent = message;
+    msgEl.innerHTML = escapeHtml(message).replace(/\n/g, "<br>");
 
-    if (isConfirm) {
-      input.classList.add("hidden");
-    } else {
+    // モードに応じたUI切り替え
+    if (mode === "prompt") {
       input.classList.remove("hidden");
       input.value = defaultValue;
+      btnCancel.classList.remove("hidden");
+    } else if (mode === "confirm") {
+      input.classList.add("hidden");
+      btnCancel.classList.remove("hidden");
+    } else if (mode === "alert") {
+      input.classList.add("hidden");
+      btnCancel.classList.add("hidden"); // アラート時はキャンセルボタンを隠す
     }
 
     modal.classList.remove("hidden");
     modal.classList.add("flex");
-    document.getElementById("app-ui")?.setAttribute("inert", "");
+    toggleMainUI(true);
     lockScroll();
 
-    if (!isConfirm) {
+    if (mode === "prompt") {
       setTimeout(() => {
         input.focus();
         input.select();
@@ -373,17 +432,29 @@ function requestCustomPrompt(
     const cleanup = () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
-      document.getElementById("app-ui")?.removeAttribute("inert");
-      unlockScroll();
+      // 他のモーダルやパレットが開いている場合は背景ロック解除をスキップ
+      if (
+        !isCommandPaletteOpen &&
+        document
+          .getElementById("csv-mapping-modal")
+          .classList.contains("hidden") &&
+        document.getElementById("export-modal").classList.contains("hidden") &&
+        document
+          .getElementById("role-dict-editor-modal")
+          .classList.contains("hidden")
+      ) {
+        toggleMainUI(false);
+        unlockScroll();
+      }
     };
 
     btnSubmit.onclick = () => {
       cleanup();
-      resolve(isConfirm ? true : input.value);
+      resolve(mode === "prompt" ? input.value : true);
     };
     btnCancel.onclick = () => {
       cleanup();
-      resolve(isConfirm ? false : null);
+      resolve(mode === "prompt" ? null : false);
     };
     input.onkeydown = (e) => {
       if (e.key === "Enter" && !e.isComposing) {
@@ -392,11 +463,12 @@ function requestCustomPrompt(
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        btnCancel.click();
+        if (mode !== "alert") btnCancel.click();
+        else btnSubmit.click();
       }
     };
   });
-}
+};
 
 function handlePlainTextPaste(event) {
   event.preventDefault();
@@ -421,8 +493,6 @@ function handlePlainTextPaste(event) {
     const selection = window.getSelection();
     if (!selection.rangeCount) return;
     selection.deleteFromDocument();
-    selection.getRangeAt(0).insertNode(document.createTextNode(cleanText));
-    selection.collapseToEnd();
 
     const textNode = document.createTextNode(cleanText);
     const range = selection.getRangeAt(0);
@@ -666,12 +736,13 @@ function migrateDatabase() {
       const migrated = getDbSetting("contact_fields_migrated");
       if (!migrated) {
         db.run("BEGIN TRANSACTION;");
-        let migrateStmt;
+        let migrateStmt = null;
+        let insertFieldStmt = null;
         try {
           migrateStmt = db.prepare(
             "SELECT id, memo, contact_info, role FROM records WHERE parent_id IS NOT NULL",
           );
-          const insertField = db.prepare(
+          insertFieldStmt = db.prepare(
             "INSERT OR IGNORE INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
           );
           while (migrateStmt.step()) {
@@ -679,22 +750,22 @@ function migrateDatabase() {
             if (contactInfo && contactInfo.trim()) {
               const ci = contactInfo.trim();
               if (ci.includes("@")) {
-                insertField.run([id, "email", ci, "work", 0]);
+                insertFieldStmt.run([id, "email", ci, "work", 0]);
               } else {
-                insertField.run([id, "phone", ci, "mobile", 0]);
+                insertFieldStmt.run([id, "phone", ci, "mobile", 0]);
               }
             }
             if (role && role.trim()) {
-              insertField.run([id, "job_title", role.trim(), "other", 0]);
+              insertFieldStmt.run([id, "job_title", role.trim(), "other", 0]);
             }
           }
-          insertField.free();
           db.run("COMMIT;");
         } catch (e) {
           db.run("ROLLBACK;");
           throw e;
         } finally {
           if (migrateStmt) migrateStmt.free();
+          if (insertFieldStmt) insertFieldStmt.free();
         }
         setDbSetting("contact_fields_migrated", "true");
       }
@@ -815,12 +886,13 @@ function getContactFields(recordId) {
   let stmt;
   try {
     stmt = db.prepare(
-      "SELECT field_key, field_value, field_type, sort_order FROM contact_fields WHERE record_id = ? ORDER BY sort_order ASC, id ASC",
+      "SELECT id, field_key, field_value, field_type, sort_order FROM contact_fields WHERE record_id = ? ORDER BY sort_order ASC, id ASC",
     );
     stmt.bind([recordId]);
     while (stmt.step()) {
-      const [k, v, t, o] = stmt.get();
+      const [fId, k, v, t, o] = stmt.get();
       fields.push({
+        id: fId,
         field_key: k,
         field_value: v,
         field_type: t,
@@ -1041,7 +1113,7 @@ function parseVCardText(text) {
         case "BDAY":
           contact.fields.push({ key: "birthday", value, type: "other" });
           break;
-        case "NOTE":
+        case "NOTE": {
           const unescapedNote = value
             .replace(/\\n/gi, "\n")
             .replace(/\\,/g, ",");
@@ -1051,6 +1123,7 @@ function parseVCardText(text) {
             type: "other",
           });
           break;
+        }
         case "URL":
           contact.fields.push({ key: "url", value, type: typeVal });
           break;
@@ -1087,6 +1160,15 @@ function parseVCardText(text) {
         }
       }
     }
+
+    if (!contact.displayName) {
+      const fName =
+        contact.fields.find((f) => f.key === "family_name")?.value || "";
+      const gName =
+        contact.fields.find((f) => f.key === "given_name")?.value || "";
+      contact.displayName = `${fName} ${gName}`.replace(/\s+/g, " ").trim();
+    }
+
     if (contact.displayName || contact.fields.length > 0)
       contacts.push(contact);
   }
@@ -1096,12 +1178,17 @@ function parseVCardText(text) {
 // vCardインポート実行
 async function importVCardFile(file) {
   if (!file) return;
-  // 5MB (5 * 1024 * 1024 bytes) の安全装置を追加
-  if (file.size > 5242880) {
-    alert(
-      "ファイルサイズが大きすぎます（5MB上限）。ブラウザのクラッシュを防ぐため読み込みを中止しました。",
+  // ファイルサイズの安全装置 (20MBに変更し、顔写真付きvCardの誤爆を回避)
+  if (file.size > 20971520) {
+    const isConfirmed = await window.requestCustomPrompt(
+      "警告",
+      "ファイルサイズが非常に大きいです（20MB超過）。読み込みに時間がかかるか、ブラウザが重くなる可能性があります。続行しますか？",
+      "",
+      "confirm",
     );
-    return;
+    if (!isConfirmed) {
+      return;
+    }
   }
   if (!db) return;
   const buffer = await file.arrayBuffer();
@@ -1113,32 +1200,48 @@ async function importVCardFile(file) {
   }
   const contacts = parseVCardText(text);
   if (contacts.length === 0) {
-    alert("vCardファイルから連絡先を読み取れませんでした。");
+    showToast("vCardファイルから連絡先を読み取れませんでした。", "⚠️", "error");
     return;
   }
-  if (!confirm(`${contacts.length} 件の連絡先をインポートしますか？`)) return;
+  const isConfirmed = await window.requestCustomPrompt(
+    "インポートの確認",
+    `${contacts.length} 件の連絡先をインポートしますか？`,
+    "",
+    "confirm",
+  );
+  if (!isConfirmed) return;
 
   db.run("BEGIN TRANSACTION;");
   let checkStmt = null;
   try {
     checkStmt = db.prepare(
-      "SELECT 1 FROM records WHERE memo = ? AND contact_info = ? LIMIT 1",
+      "SELECT 1 FROM records WHERE memo = ? AND IFNULL(contact_info, '') = IFNULL(?, '') LIMIT 1",
     );
     // 組織ごとにグループ化
     const orgMap = new Map();
     contacts.forEach((c) => {
       const org = c.org || "vCardインポート";
-      if (!orgMap.has(org)) orgMap.set(org, []);
-      orgMap.get(org).push(c);
+      // 比較キー: 全角半角スペースを削除し、NFKC正規化と小文字化を行うことで揺らぎを吸収
+      const orgKey = org
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/[\s　]+/g, "");
+      if (!orgMap.has(orgKey)) {
+        orgMap.set(orgKey, { displayName: org, members: [] });
+      }
+      orgMap.get(orgKey).members.push(c);
     });
 
-    for (const [orgName, members] of orgMap) {
+    for (const [orgKey, data] of orgMap) {
+      const orgName = data.displayName;
+      const members = data.members;
       db.run("INSERT INTO records (memo, contact_info) VALUES (?, ?)", [
         orgName,
         null,
       ]);
       const pRes = db.exec("SELECT last_insert_rowid()");
-      const parentId = pRes[0].values[0][0];
+      const parentId = pRes[0]?.values?.[0]?.[0];
+      if (!parentId) throw new Error("親IDの取得に失敗しました");
 
       for (const contact of members) {
         const name = contact.displayName || "";
@@ -1161,7 +1264,8 @@ async function importVCardFile(file) {
           [parentId, name, contactInfo, role],
         );
         const cRes = db.exec("SELECT last_insert_rowid()");
-        const childId = cRes[0].values[0][0];
+        const childId = cRes[0]?.values?.[0]?.[0];
+        if (!childId) throw new Error("子IDの取得に失敗しました");
 
         // contact_fields に全フィールドを保存
         const counters = {};
@@ -1189,7 +1293,7 @@ async function importVCardFile(file) {
     );
   } catch (err) {
     db.run("ROLLBACK;");
-    alert("vCardインポート中にエラーが発生しました。");
+    showToast("vCardインポート中にエラーが発生しました。", "⚠️", "error");
     console.error(err);
   } finally {
     if (checkStmt) checkStmt.free();
@@ -1215,11 +1319,13 @@ async function initSQLite() {
     let initialData = null;
     const draft = await loadDraft();
     if (draft) {
-      if (
-        confirm(
-          "⚠️ 前回終了時の未保存データ（バックアップ）が見つかりました。\n\n復元しますか？\n（「キャンセル」を押すとバックアップは破棄されます）",
-        )
-      ) {
+      const isConfirmed = await window.requestCustomPrompt(
+        "バックアップの復元",
+        "前回終了時の未保存データ（バックアップ）が見つかりました。\n\n復元しますか？\n（「キャンセル」を押すとバックアップは破棄されます）",
+        "",
+        "confirm",
+      );
+      if (isConfirmed) {
         initialData = draft;
         let Uints = draft;
         const magic = Uints.slice(0, 8);
@@ -1245,8 +1351,11 @@ async function initSQLite() {
                   : "バックアップデータは暗号化されています。解除パスワードを入力してください:";
               password = await requestPasswordPrompt(msg);
               if (password === null) {
-                alert(
+                await window.requestCustomPrompt(
+                  "起動キャンセル",
                   "起動をキャンセルしました。リロードしてやり直してください。",
+                  "",
+                  "alert",
                 );
                 document.getElementById("app-ui")?.classList.add("hidden");
                 const errorScreen =
@@ -1283,7 +1392,12 @@ async function initSQLite() {
         );
       } catch (dbError) {
         console.error("ドラフトの復元に失敗しました。", dbError);
-        alert("⚠️ 前回の未保存データが破損しているため、復元を中止しました。");
+        await window.requestCustomPrompt(
+          "エラー",
+          "前回の未保存データが破損しているため、復元を中止しました。",
+          "",
+          "alert",
+        );
         await clearDraft();
         db = new SQL.Database();
         db.run(`
@@ -1355,14 +1469,33 @@ function handleLaunchFiles() {
       if (!launchParams.files || launchParams.files.length === 0) return;
 
       if (isDirty) {
-        if (
-          !confirm(
-            "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
-          )
-        )
+        const isConfirmed = await window.requestCustomPrompt(
+          "確認",
+          "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
+          "",
+          "confirm",
+        );
+        if (!isConfirmed) {
           return;
+        }
       }
-      await processFileHandle(launchParams.files[0]);
+
+      const handle = launchParams.files[0];
+      if (handle.name.endsWith(".vcf")) {
+        const file = await handle.getFile();
+        await importVCardFile(file);
+      } else if (handle.name.endsWith(".csv")) {
+        const file = await handle.getFile();
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        const csvInput = document.getElementById("csv-input");
+        if (csvInput) {
+          csvInput.files = dataTransfer.files;
+          csvInput.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      } else {
+        await processFileHandle(handle);
+      }
     });
   }
 }
@@ -1389,7 +1522,7 @@ function showToast(message, iconHtml = "✅", type = "normal") {
     container.id = "toast-container";
     container.setAttribute("aria-live", "polite");
     container.className =
-      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 pointer-events-none w-full px-4 max-w-md";
+      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none w-full px-4 max-w-md";
     document.body.appendChild(container);
   }
 
@@ -1443,7 +1576,12 @@ function addBlock() {
     [trimmedMemo, null, defaultTag, localTime],
   );
   const res = db.exec("SELECT last_insert_rowid()");
-  const newId = res[0].values[0][0];
+  const newId = res[0]?.values?.[0]?.[0];
+
+  if (!newId) {
+    console.error("IDの取得に失敗しました");
+    return;
+  }
 
   memoInput.value = "";
   setDirty(true);
@@ -1469,7 +1607,12 @@ function addItem(parentId, memo, contactInfo, dateStr, roleStr) {
     }
   }
 
-  insertRecord(parentId, safeMemo, contactInfo, dateStr, roleStr);
+  let defaultTag = null;
+  if (currentActiveTag) {
+    defaultTag = currentActiveTag.replace(/^[#＃]/, "");
+  }
+
+  insertRecord(parentId, safeMemo, contactInfo, dateStr, roleStr, defaultTag);
 
   renderData(parentId);
 }
@@ -1480,20 +1623,21 @@ function insertRecord(
   contactInfo,
   dateStr = null,
   roleStr = null,
+  tags = null,
 ) {
   let query =
-    "INSERT INTO records (parent_id, memo, contact_info, role) VALUES (?, ?, ?, ?)";
-  let params = [parentId, memo, contactInfo, roleStr];
+    "INSERT INTO records (parent_id, memo, contact_info, role, tags) VALUES (?, ?, ?, ?, ?)";
+  let params = [parentId, memo, contactInfo, roleStr, tags];
 
   if (dateStr) {
     // タイムゾーンによるバグを回避するため、入力された日付を文字列のまま保存する
     query =
-      "INSERT INTO records (parent_id, memo, contact_info, role, created_at) VALUES (?, ?, ?, ?, ?)";
+      "INSERT INTO records (parent_id, memo, contact_info, role, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)";
     params.push(dateStr + " 00:00:00");
   } else {
     // SQLiteのCURRENT_TIMESTAMP(UTC)による9時間ズレを防ぐため、JS側でローカル時間を記録
     query =
-      "INSERT INTO records (parent_id, memo, contact_info, role, created_at) VALUES (?, ?, ?, ?, ?)";
+      "INSERT INTO records (parent_id, memo, contact_info, role, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)";
     const now = new Date();
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -1595,8 +1739,10 @@ function updateRecord(id, field, newValue, element) {
     return;
   }
 
-  // ★ 改行をスペースに置換してサニタイズ (Shift+Enter等によるレイアウト崩れ対策)
-  let val = newValue.replace(/[\r\n]+/g, " ").trim();
+  // ★ 安全に文字列化（null/undefined フォールバック付き）してからサニタイズ
+  let val = String(newValue ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
   if (field === "contact_info" && val === "") {
     val = null;
   }
@@ -1608,8 +1754,6 @@ function updateRecord(id, field, newValue, element) {
     clearContactFieldsByKey(id, "middle_name");
     clearContactFieldsByKey(id, "name_prefix");
     clearContactFieldsByKey(id, "name_suffix");
-    clearContactFieldsByKey(id, "family_name_yomi");
-    clearContactFieldsByKey(id, "given_name_yomi");
   }
 
   // 変更があるかチェック (内容が変わっていない場合は何もしない)
@@ -1641,12 +1785,22 @@ function updateRecord(id, field, newValue, element) {
     clearContactFieldsByKey(id, "job_title");
     if (val) setContactField(id, "job_title", val, "other", 0);
   } else if (field === "contact_info") {
-    clearContactFieldsByKey(id, "phone");
-    clearContactFieldsByKey(id, "email");
     if (val) {
       const type = val.includes("@") ? "email" : "phone";
       const subType = val.includes("@") ? "work" : "mobile";
-      setContactField(id, type, val, subType, 0);
+      db.run(
+        "UPDATE contact_fields SET field_value = ?, field_type = ? WHERE record_id = ? AND field_key = ? AND sort_order = 0",
+        [val, subType, id, type],
+      );
+      const changes = db.exec("SELECT changes()")[0].values[0][0];
+      if (changes === 0) {
+        setContactField(id, type, val, subType, 0);
+      }
+    } else {
+      db.run(
+        "DELETE FROM contact_fields WHERE record_id = ? AND field_key IN ('phone', 'email') AND sort_order = 0",
+        [id],
+      );
     }
   }
 
@@ -1665,8 +1819,37 @@ function updateRecord(id, field, newValue, element) {
         (!cInfo || cInfo.trim() === "") &&
         (!r || r.trim() === "")
       ) {
-        deleteRecord(id, true); // forceフラグ付きで確認ダイアログなしでサイレント削除
-        return; // UIの再描画等は deleteRecord 側に委ねるためここで終了
+        // 非同期に逃がすことで、現在のblurイベントやフォーカス移動を安全に完了させ、その後フォーカスを復元する
+        setTimeout(() => {
+          let activeSel = null;
+          const el = document.activeElement;
+          if (
+            el &&
+            el.hasAttribute("data-id") &&
+            el.hasAttribute("data-field")
+          ) {
+            activeSel = `[data-id="${el.getAttribute("data-id")}"][data-field="${el.getAttribute("data-field")}"]`;
+          } else if (el && el.classList.contains("item-role")) {
+            const form = el.closest("form");
+            if (form) activeSel = `#${form.id} .item-role`;
+          }
+
+          deleteRecord(id, true);
+
+          if (activeSel) {
+            requestAnimationFrame(() => {
+              const target = document.querySelector(activeSel);
+              if (target) {
+                target.focus();
+                if (target.hasAttribute("contenteditable")) {
+                  window.getSelection().selectAllChildren(target);
+                  window.getSelection().collapseToEnd();
+                }
+              }
+            });
+          }
+        }, 10);
+        return;
       }
     }
   } catch (e) {
@@ -1769,6 +1952,13 @@ function updateRecord(id, field, newValue, element) {
       }
     }
   }
+
+  // ★ DOMのテキストが完全に空になった場合、ゴミタグを消し去って empty 疑似クラスを効かせる
+  if ((field === "memo" || field === "contact_info") && element) {
+    if (val === "" || val === null) {
+      element.innerHTML = "";
+    }
+  }
 }
 
 // ハッカー的カウントアップ演出
@@ -1862,6 +2052,9 @@ function toggleAllBlocks(collapse) {
 // --- カテゴリ（タグ）フィルター制御 ---
 function setCategoryFilter(tag) {
   currentActiveTag = tag;
+
+  // フィルター適用時にスクロール位置をトップに戻し、迷子を防ぐ
+  window.scrollTo({ top: 0, behavior: "instant" });
 
   if (document.startViewTransition) {
     document.startViewTransition(() => renderData());
@@ -2085,14 +2278,46 @@ function renderData(focusBlockId = null) {
       const a = document.createElement("a");
       a.href = `#block-${block.id}`;
       a.className =
-        "toc-item block px-2 py-1 hover:text-slate-900 hover:bg-slate-100 rounded truncate transition-colors text-slate-500 cursor-pointer text-sm font-medium";
+        "toc-item block px-2 py-1 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-dark-surface-hover rounded truncate transition-colors text-slate-500 dark:text-slate-400 cursor-pointer text-sm font-medium";
       a.textContent = block.memo || "(名称未設定)";
       a.title = block.memo || "(名称未設定)";
       a.onclick = (e) => {
         e.preventDefault();
-        document
-          .getElementById(`block-${block.id}`)
-          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        // ★ クリックしたブロック以外をすべて折りたたむ (排他制御でフィルタのような集中モードにする)
+        let stmt;
+        try {
+          stmt = db.prepare("SELECT id FROM records WHERE parent_id IS NULL");
+          while (stmt.step()) {
+            const pid = stmt.get()[0];
+            if (pid === block.id) {
+              collapsedBlocks.delete(pid); // 対象は展開
+            } else {
+              collapsedBlocks.add(pid); // 他はすべて折りたたむ
+            }
+          }
+        } finally {
+          if (stmt) stmt.free();
+        }
+
+        const applyScroll = () => {
+          setTimeout(() => {
+            document
+              .getElementById(`block-${block.id}`)
+              ?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 100);
+        };
+
+        // 再描画して状態を反映
+        if (document.startViewTransition) {
+          document.startViewTransition(() => {
+            renderData();
+            applyScroll();
+          });
+        } else {
+          renderData();
+          applyScroll();
+        }
       };
       tocList.appendChild(a);
     });
@@ -2237,7 +2462,8 @@ function renderData(focusBlockId = null) {
         `;
         a.querySelector("div").onclick = (e) => {
           e.preventDefault();
-          showTagModal(tag, data);
+          // ★ モーダルを出すのではなく、メイン画面のフィルタを直接かける
+          setCategoryFilter(tag);
         };
         a.querySelector(".export-btn").onclick = (e) => {
           e.preventDefault();
@@ -2277,7 +2503,8 @@ function renderData(focusBlockId = null) {
             <svg class="w-4 h-4"><use href="#icon-download"></use></svg>
           </button>
         `;
-        btn.onclick = () => showTagModal(tag, data);
+        // ★ モーダルではなくメイン画面フィルタ
+        btn.onclick = () => setCategoryFilter(tag);
         btn.querySelector(".export-btn").onclick = (e) => {
           e.stopPropagation();
           exportTagVCard(tag, data.items);
@@ -2297,10 +2524,11 @@ function renderData(focusBlockId = null) {
 
   if (focusBlockId) {
     const targetInput = document.querySelector(
-      `#block-form-${focusBlockId} .item-role`,
+      `#block-form-${focusBlockId} .item-memo`,
     );
     if (targetInput) {
       targetInput.focus({ preventScroll: false });
+      targetInput.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
 
@@ -2312,17 +2540,33 @@ function renderData(focusBlockId = null) {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           document.querySelectorAll(".toc-item").forEach((el) => {
-            el.classList.remove("text-primary", "bg-primary-50", "font-bold");
-            el.classList.add("text-slate-500", "font-medium");
+            el.classList.remove(
+              "text-primary",
+              "dark:text-blue-400",
+              "bg-primary-50",
+              "dark:bg-primary/20",
+              "font-bold",
+            );
+            el.classList.add(
+              "text-slate-500",
+              "dark:text-slate-400",
+              "font-medium",
+            );
           });
           const activeToc = document.querySelector(
             `.toc-item[href="#${entry.target.id}"]`,
           );
           if (activeToc) {
-            activeToc.classList.remove("text-slate-500", "font-medium");
+            activeToc.classList.remove(
+              "text-slate-500",
+              "dark:text-slate-400",
+              "font-medium",
+            );
             activeToc.classList.add(
               "text-primary",
+              "dark:text-blue-400",
               "bg-primary-50",
+              "dark:bg-primary/20",
               "font-bold",
             );
             const tocContainer = document.getElementById("toc-container");
@@ -2367,50 +2611,56 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const avatarSvg = generateAvatarSVG(item.memo || "", item.id);
     const avatarHtml = `<div class="w-8 h-8 rounded-full overflow-hidden shrink-0 mr-3 shadow-sm border border-white/20 hidden sm:block">${avatarSvg}</div>`;
     const roleStr = item.role || "";
-    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="役割/役職" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.closest('.group/item').querySelector('[data-field=\\'memo\\']').focus();}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-xs text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-blue-400 focus:bg-blue-100 cursor-text transition-colors hover:bg-blue-100 w-[60px] sm:w-20 shrink-0 text-center placeholder-blue-300">`;
+
+    // ★ 役職のデザインをダークモード対応し、ライトモードでもコントラストを高めて見やすくしました
+    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="役割/役職" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-20 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
 
     itemsHtml += `
       <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 dark:border-dark-border/30 group/item hover:bg-slate-50/80 dark:hover:bg-dark-surface-hover transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${avatarHtml}
           ${roleDisp}
-            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_名前を入力'] empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.memo)}</span>
+            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_名前を入力'] empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onfocus="window.getSelection().selectAllChildren(this)" onpaste="handlePlainTextPaste(event)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_電話/Email'] empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.contact_info || "")}</span>
+          <!-- ★ ここが既存メンバーの連絡先表示欄です -->
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:content-['✎_電話/Email'] empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
-            <button onclick="shareContact(${item.id})" aria-label="共有" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-1 transition-colors" title="vCardを共有">
+            <!-- ★ タッチターゲットを拡大 (p-2) しました -->
+            <button onclick="shareContact(${item.id})" aria-label="共有" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="vCardを共有">
               <svg class="w-4 h-4"><use href="#icon-share"></use></svg>
             </button>
-            <button onclick="showContactDetail(${item.id})" aria-label="詳細" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-1 transition-colors" title="詳細編集">
+            <button onclick="showContactDetail(${item.id})" aria-label="詳細" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="詳細編集">
               <svg class="w-4 h-4"><use href="#icon-pencil"></use></svg>
             </button>
-            <button onclick="duplicateRecord(${item.id})" aria-label="複製" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-1 transition-colors" title="複製">
+            <button onclick="duplicateRecord(${item.id})" aria-label="複製" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="複製">
               <svg class="w-4 h-4"><use href="#icon-copy"></use></svg>
             </button>
-            <button onclick="deleteRecord(${item.id})" aria-label="削除" class="text-slate-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-colors text-xl leading-none px-1 py-0.5 -mt-0.5" title="削除">&times;</button>
+            <!-- ★ 削除ボタンもタップしやすく拡大しました -->
+            <button onclick="deleteRecord(${item.id})" aria-label="削除" class="text-slate-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-colors text-2xl leading-none px-2 py-1 -mt-0.5" title="削除">&times;</button>
           </div>
         </div>
       </div>
     `;
   });
 
-  const isCollapsed = collapsedBlocks.has(block.id);
+  // ★ フィルター適用中は、ユーザーを迷わせないため強制的にブロックを展開する
+  const isCollapsed = collapsedBlocks.has(block.id) && !currentActiveTag;
   const maxH = isCollapsed ? "0px" : "99999px";
   const op = isCollapsed ? "0" : "1";
   const iconRotation = isCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
 
   blockEl.innerHTML = `
-    <button onclick="event.stopPropagation(); saveTemplate(${block.id})" class="absolute -top-3 -left-3 opacity-100 md:opacity-0 group-hover/block:opacity-100 bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border text-slate-400 hover:text-primary hover:border-primary/50 hover:shadow-[0_0_15px_rgba(15,98,254,0.3)] hover:scale-110 p-2 rounded-xl transition-all duration-300 cursor-pointer flex items-center justify-center z-10" title="このブロックをテンプレートとして保存">
-      <svg class="w-5 h-5"><use href="#icon-squares-plus"></use></svg>
-    </button>
     <div class="bg-white dark:bg-dark-surface rounded-xl shadow-sm border border-slate-200 dark:border-dark-border overflow-hidden transition-all hover:border-slate-300 dark:hover:border-dark-border-hover hover:shadow-md">
+
+    <!-- ★ レイアウト崩壊の原因だった sticky 関連のクラスを削除し、元の安全なフローに戻しました -->
     <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 dark:bg-dark-surface px-4 sm:px-8 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-start transition-colors cursor-pointer select-none group/header hover:bg-slate-100 dark:hover:bg-dark-surface-hover">
 
       <div class="flex flex-col overflow-hidden w-full">
         <div class="flex items-center gap-3">
           <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
-          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ form.querySelector('.item-role').focus(); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:content-['✎_グループ名'] empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(block.memo)}</h2>
+          <!-- ★ select-text でiOSのフォーカスバグを防止 -->
+          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:content-['✎_グループ名'] empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50">${escapeHtml(block.memo)}</h2>
         </div>
 
         <!-- ★ 専用タグ入力欄 -->
@@ -2422,6 +2672,10 @@ function updateOrCreateBlockElement(block, existingEl = null) {
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 dark:text-white text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">人</span></div>
         <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-8 gap-1">
+          <!-- ★ テンプレート保存ボタンをはみ出させず、ここに安全に統合しました -->
+          <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="テンプレートとして保存" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="このブロックをテンプレートとして保存">
+            <svg class="w-5 h-5"><use href="#icon-squares-plus"></use></svg>
+          </button>
           <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="並べ替え" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-dark-surface-hover hover:text-slate-600 dark:hover:text-slate-300 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="古い順に並べ替える">
             <svg class="w-4 h-4"><use href="#icon-sort"></use></svg>
           </button>
@@ -2447,16 +2701,17 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         <span class="text-primary text-xl leading-none font-light hidden sm:inline">+</span>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-          <button type="submit" aria-label="明細を追加" class="text-primary bg-primary/10 hover:bg-primary/20 rounded-full w-8 h-8 flex items-center justify-center text-xl leading-none font-light sm:hidden transition-colors outline-none focus:ring-2 focus:ring-primary/50 shrink-0">+</button>
-
-          <!-- ★ カレンダーインプットを完全撤廃し、役職入力を左端に配置 -->
-          <input type="text" placeholder="役割/役職" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-16 sm:w-24 shrink-0 text-sm outline-none text-center min-w-0">
+          <button type="submit" aria-label="メンバーを追加" class="text-primary bg-primary/10 hover:bg-primary/20 rounded-full w-10 h-10 flex items-center justify-center text-2xl leading-none font-light sm:hidden transition-colors outline-none focus:ring-2 focus:ring-primary/50 shrink-0">+</button>
+          <input type="text" placeholder="役割/役職" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-20 sm:w-32 shrink-0 text-sm outline-none text-center min-w-0">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
-          <input type="text" placeholder="氏名を追加... (署名をペースト可)" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-0">
+          <!-- ★ onfocusのスクロールをPC限定にしてJankを防止 -->
+          <input type="text" placeholder="氏名を追加... (署名をペースト可)" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) return; event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="署名テキストをペーストすると自動解析します"><use href="#icon-sparkles"></use></svg>
-          <input type="text" inputmode="email" placeholder="Tel/Email..." spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-28 sm:w-48 shrink-0 text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
+
+          <!-- ★ ここが消えていた新規追加用の連絡先入力欄 (item-contact) です！ -->
+          <input type="text" inputmode="email" placeholder="Tel/Email..." spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-28 sm:w-48 shrink-0 text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">追加</button>
       </form>
@@ -2490,26 +2745,28 @@ async function saveTemplate(blockId) {
   let itemsStmt;
   try {
     itemsStmt = db.prepare(
-      "SELECT memo, role, contact_info, tags FROM records WHERE parent_id = ? ORDER BY sort_order ASC, id ASC",
+      "SELECT id, memo, role, contact_info, tags FROM records WHERE parent_id = ? ORDER BY sort_order ASC, id ASC",
     );
     itemsStmt.bind([blockId]);
     while (itemsStmt.step()) {
       const row = itemsStmt.get();
       items.push({
-        memo: row[0],
-        role: row[1],
-        contact_info: row[2],
-        tags: row[3],
+        memo: row[1],
+        role: row[2],
+        contact_info: row[3],
+        tags: row[4],
+        fields: getContactFields(row[0]),
       });
     }
   } finally {
     if (itemsStmt) itemsStmt.free();
   }
 
-  let tplName = await requestCustomPrompt(
+  let tplName = await window.requestCustomPrompt(
     "テンプレートの保存",
     "このブロックをテンプレートとして保存します。\n呼び出し用の名前を入力してください:",
     blockMemo + " (雛形)",
+    "prompt",
   );
   if (!tplName) return;
 
@@ -2521,9 +2778,7 @@ async function saveTemplate(blockId) {
     if (stmt) stmt.free();
   }
   setDirty(true);
-  alert(
-    `✅ テンプレート「${tplName}」を保存しました。\nコマンドパレット(Cmd+K)からいつでも一発で呼び出せます。`,
-  );
+  showToast(`テンプレート「${tplName}」を保存しました`, "✨");
 }
 
 function insertTemplate(templateId) {
@@ -2547,15 +2802,21 @@ function insertTemplate(templateId) {
   try {
     tplData = JSON.parse(rawData || "[]");
   } catch (e) {
-    alert(
+    showToast(
       "テンプレートデータの読み込みに失敗しました。データが破損している可能性があります。",
+      "⚠️",
+      "error",
     );
     return;
   }
 
   // 万が一パース結果がオブジェクト等で配列でない場合のクラッシュ(TypeError)を防止
   if (!Array.isArray(tplData)) {
-    alert("テンプレートデータが破損しています（配列ではありません）。");
+    showToast(
+      "テンプレートデータが破損しています（配列ではありません）。",
+      "⚠️",
+      "error",
+    );
     return;
   }
 
@@ -2579,7 +2840,11 @@ function insertTemplate(templateId) {
     [tplName, null, defaultTag, localTime],
   );
   const parentRes = db.exec("SELECT last_insert_rowid()");
-  const parentId = parentRes[0].values[0][0];
+  const parentId = parentRes[0]?.values?.[0]?.[0];
+  if (!parentId) {
+    console.error("IDの取得に失敗しました");
+    return;
+  }
 
   // 今日の日付を取得 (子要素の created_at 用)
   const today = new Date();
@@ -2587,9 +2852,13 @@ function insertTemplate(templateId) {
 
   // 子要素を展開して一気にINSERT
   let insertStmt = null;
+  let insertFieldStmt = null;
   try {
     insertStmt = db.prepare(
       "INSERT INTO records (parent_id, memo, contact_info, role, created_at, tags) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    insertFieldStmt = db.prepare(
+      "INSERT INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
     );
     for (let item of tplData) {
       insertStmt.run([
@@ -2600,9 +2869,25 @@ function insertTemplate(templateId) {
         dateStr,
         item.tags || null,
       ]);
+      const childRes = db.exec("SELECT last_insert_rowid()");
+      const childId = childRes[0]?.values?.[0]?.[0];
+      if (!childId) continue;
+
+      if (item.fields && Array.isArray(item.fields)) {
+        for (let f of item.fields) {
+          insertFieldStmt.run([
+            childId,
+            f.field_key,
+            f.field_value,
+            f.field_type || "other",
+            f.sort_order || 0,
+          ]);
+        }
+      }
     }
   } finally {
     if (insertStmt) insertStmt.free();
+    if (insertFieldStmt) insertFieldStmt.free();
   }
 
   setDirty(true);
@@ -2610,34 +2895,42 @@ function insertTemplate(templateId) {
 }
 
 // 3.5 データの削除（DELETE文の実行）
-function deleteRecord(id, force = false) {
+async function deleteRecord(id, force = false) {
   if (!db) return;
 
   // ブロックかメンバーかを判定し、子供の数を数える
   let isParent = false;
   let childCount = 0;
+  let pStmt = null;
+  let cStmt = null;
   try {
-    const pStmt = db.prepare("SELECT parent_id FROM records WHERE id = ?");
+    pStmt = db.prepare("SELECT parent_id FROM records WHERE id = ?");
     pStmt.bind([id]);
     if (pStmt.step() && pStmt.get()[0] === null) {
       isParent = true;
-      const cStmt = db.prepare(
-        "SELECT COUNT(*) FROM records WHERE parent_id = ?",
-      );
+      cStmt = db.prepare("SELECT COUNT(*) FROM records WHERE parent_id = ?");
       cStmt.bind([id]);
       if (cStmt.step()) childCount = cStmt.get()[0];
-      cStmt.free();
     }
-    pStmt.free();
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    if (pStmt) pStmt.free();
+    if (cStmt) cStmt.free();
+  }
 
   if (!force) {
     const msg =
       isParent && childCount > 0
-        ? `⚠️ 警告\n含まれるメンバー ${childCount} 人をすべて削除しますか？\nこの操作は元に戻せません。`
+        ? `含まれるメンバー ${childCount} 人をすべて削除しますか？\nこの操作は元に戻せません。`
         : "この記録を削除しますか？";
 
-    if (!confirm(msg)) return;
+    const isConfirmed = await window.requestCustomPrompt(
+      "削除の確認",
+      msg,
+      "",
+      "confirm",
+    );
+    if (!isConfirmed) return;
   }
 
   // contact_fields の関連データも連動削除
@@ -2667,14 +2960,16 @@ function deleteRecord(id, force = false) {
 }
 
 // 手動でブロック内の明細を日付順に並べ替える
-function sortBlockByDate(blockId) {
+async function sortBlockByDate(blockId) {
   if (!db) return;
-  if (
-    !confirm(
-      "このブロック内の明細を「日付が古い順」に並べ替えますか？\n（同じ日付の場合は入力した順になります）",
-    )
-  )
-    return;
+  const isConfirmed = await window.requestCustomPrompt(
+    "並べ替えの確認",
+    "このブロック内の明細を「日付が古い順」に並べ替えますか？\n（同じ日付の場合は入力した順になります）",
+    "このグループ内のメンバーを「日付が古い順」に並べ替えますか？\n（同じ日付の場合は入力した順になります）",
+    "",
+    "confirm",
+  );
+  if (!isConfirmed) return;
 
   let stmt;
   let items = [];
@@ -2697,14 +2992,17 @@ function sortBlockByDate(blockId) {
 
   let updateStmt;
   try {
+    db.run("BEGIN TRANSACTION;");
     updateStmt = db.prepare("UPDATE records SET sort_order = ? WHERE id = ?");
     items.forEach((item, index) => {
       updateStmt.run([index, item.id]);
     });
+    db.run("COMMIT;");
     setDirty(true);
     renderData();
     showToast("日付順に並べ替えました", "🧹");
   } catch (e) {
+    db.run("ROLLBACK;");
     console.error("並べ替えに失敗しました", e);
   } finally {
     if (updateStmt) updateStmt.free();
@@ -2748,7 +3046,12 @@ function duplicateRecord(id) {
 
       // 新しく挿入されたレコードのIDを取得
       const res = db.exec("SELECT last_insert_rowid()");
-      const newId = res[0].values[0][0];
+      const newId = res[0]?.values?.[0]?.[0];
+
+      if (!newId) {
+        console.error("複製先IDの取得に失敗しました");
+        return;
+      }
 
       // 💡 関連する contact_fields の詳細データをコピーする処理
       let fieldsStmt;
@@ -2775,7 +3078,10 @@ function duplicateRecord(id) {
       setDirty(true);
       renderData();
 
-      showToast("明細を複製しました", '<span class="text-green-400">📋</span>');
+      showToast(
+        "メンバーを複製しました",
+        '<span class="text-green-400">📋</span>',
+      );
 
       // 画面の再描画が終わった直後に、新しい行の名前にフォーカスを当てて全選択する
       requestAnimationFrame(() => {
@@ -2783,6 +3089,7 @@ function duplicateRecord(id) {
           `span[data-id="${newId}"][data-field="memo"]`,
         );
         if (newMemoEl) {
+          newMemoEl.scrollIntoView({ behavior: "smooth", block: "center" });
           newMemoEl.focus();
           window.getSelection().selectAllChildren(newMemoEl);
         }
@@ -2801,6 +3108,12 @@ async function savePeopleFile(isSaveAs = false) {
   if (!db) return;
   if (isSaving) return;
   isSaving = true;
+
+  // 手動保存が走った場合、裏で待機中のオートセーブをキャンセルする
+  if (draftTimer) {
+    clearTimeout(draftTimer);
+    draftTimer = null;
+  }
 
   let activeSelector = null;
   const activeEl = document.activeElement;
@@ -2849,11 +3162,13 @@ async function savePeopleFile(isSaveAs = false) {
     const currentPassword = document.getElementById("file-password").value;
 
     if (lastSavedPassword !== "" && currentPassword === "") {
-      if (
-        !confirm(
-          "⚠️ 警告 ⚠️\nパスワードが空になっています。\nこのまま保存すると、ファイルの暗号化が解除され「平文」で保存されます。\n\n本当に暗号化を解除して保存しますか？",
-        )
-      ) {
+      const isConfirmed = await window.requestCustomPrompt(
+        "警告",
+        "パスワードが空になっています。\nこのまま保存すると、ファイルの暗号化が解除され「平文」で保存されます。\n\n本当に暗号化を解除して保存しますか？",
+        "",
+        "confirm",
+      );
+      if (!isConfirmed) {
         document.getElementById("file-password").value = lastSavedPassword;
         isSaving = false;
         return;
@@ -2869,7 +3184,11 @@ async function savePeopleFile(isSaveAs = false) {
         return;
       }
       if (confirmPw !== currentPassword) {
-        alert("❌ パスワードが一致しません。保存を中止しました。");
+        showToast(
+          "パスワードが一致しません。保存を中止しました。",
+          "⚠️",
+          "error",
+        );
         isSaving = false;
         return;
       }
@@ -2961,8 +3280,11 @@ async function savePeopleFile(isSaveAs = false) {
           }
         }
       } catch (e) {
-        alert(
+        await window.requestCustomPrompt(
+          "エラー",
           "ファイルの書き込み権限が取得できませんでした。時間経過によりブラウザが権限を取り消した可能性があります。\n\n「複製して保存する (Save As)」をお試しください。",
+          "",
+          "alert",
         );
         return;
       }
@@ -3007,13 +3329,27 @@ async function savePeopleFile(isSaveAs = false) {
 
 // 5. 【核心部】 ファイル読み込みの共通処理
 async function processFileHandle(handle, isDummy = false) {
+  const statusEl = document.getElementById("status");
+  if (statusEl) {
+    statusEl.innerHTML = `<svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>ファイルを読み込み中...</span>`;
+    statusEl.className =
+      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 bg-blue-600/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl transition-all duration-300 z-50 flex items-center gap-2 translate-y-0 opacity-100";
+  }
+
+  await new Promise((resolve) =>
+    requestAnimationFrame(() => setTimeout(resolve, 0)),
+  );
+
   try {
     const file = await handle.getFile();
 
     // 巨大ファイルによるOOMクラッシュを防止
     if (file.size > 50 * 1024 * 1024) {
-      alert(
+      await window.requestCustomPrompt(
+        "エラー",
         "ファイルサイズが大きすぎます（50MB上限）。不正なファイルの可能性があります。",
+        "",
+        "alert",
       );
       return;
     }
@@ -3083,19 +3419,22 @@ async function processFileHandle(handle, isDummy = false) {
     renderData();
   } catch (err) {
     console.log("Open cancelled or failed.", err);
-    alert("ファイルの読み込みに失敗しました。");
+    showToast("ファイルの読み込みに失敗しました。", "⚠️", "error");
   }
 }
 
 // 5.1 「開く」ボタンから File System Access API を使った読み込み
 async function loadPeopleFile() {
   if (isDirty) {
-    if (
-      !confirm(
-        "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
-      )
-    )
+    const isConfirmed = await window.requestCustomPrompt(
+      "確認",
+      "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
+      "",
+      "confirm",
+    );
+    if (!isConfirmed) {
       return;
+    }
   }
 
   if ("showOpenFilePicker" in window) {
@@ -3119,7 +3458,7 @@ async function loadPeopleFile() {
     // Safari / Firefox 等のフォールバック (input type="file" を使う)
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".people";
+    input.accept = ".people,*/*";
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -3151,7 +3490,7 @@ function showExportModal() {
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   lockScroll();
-  document.getElementById("app-ui")?.setAttribute("inert", "");
+  toggleMainUI(true);
 }
 
 function closeExportModal() {
@@ -3159,7 +3498,7 @@ function closeExportModal() {
   modal.classList.add("hidden");
   modal.classList.remove("flex");
   unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
+  toggleMainUI(false);
 }
 
 function executeExport() {
@@ -3179,7 +3518,11 @@ function exportCSV(format = "vcard") {
   } else if (format === "outlook_csv") {
     exportOutlookCSV();
   } else {
-    alert("選択されたフォーマットはサポートされていません。");
+    showToast(
+      "選択されたフォーマットはサポートされていません。",
+      "⚠️",
+      "error",
+    );
   }
 }
 
@@ -3201,10 +3544,12 @@ function generateVCardData(items) {
     let cleanContact = contactInfo || "";
 
     // vCardフォーマット破壊を防ぐため、すべての値から改行を除去
-    cleanName = cleanName.replace(/[\r\n]+/g, " ");
-    cleanOrg = cleanOrg.replace(/[\r\n]+/g, " ");
-    cleanRole = cleanRole.replace(/[\r\n]+/g, " ");
-    cleanContact = cleanContact.replace(/[\r\n]+/g, " ");
+    cleanName = cleanName.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
+    cleanOrg = cleanOrg.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
+    cleanRole = cleanRole.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
+    cleanContact = cleanContact
+      .replace(/[\r\n]+/g, " ")
+      .replace(/([;,])/g, "\\$1");
 
     if (!cleanName) {
       if (cleanOrg) {
@@ -3396,7 +3741,7 @@ function exportVCard() {
   }
 
   if (values.length === 0) {
-    alert("エクスポートする連絡先がありません。");
+    showToast("エクスポートする連絡先がありません。", "⚠️", "warning");
     return;
   }
 
@@ -3442,7 +3787,7 @@ function exportVCard() {
   }
 
   if (filteredItems.length === 0) {
-    alert("エクスポートする連絡先がありません。");
+    showToast("エクスポートする連絡先がありません。", "⚠️", "warning");
     return;
   }
 
@@ -3451,14 +3796,15 @@ function exportVCard() {
 }
 
 // 特定のタグだけのメンバーをエクスポート
-function exportTagVCard(tag, dataItems) {
+async function exportTagVCard(tag, dataItems) {
   if (!dataItems || dataItems.length === 0) return;
-  if (
-    !confirm(
-      `タグ「${tag}」に所属する ${dataItems.length} 人をvCardとして抽出・出力しますか？`,
-    )
-  )
-    return;
+  const isConfirmed = await window.requestCustomPrompt(
+    "エクスポートの確認",
+    `タグ「${tag}」に所属する ${dataItems.length} 人をvCardとして抽出・出力しますか？`,
+    "",
+    "confirm",
+  );
+  if (!isConfirmed) return;
 
   // 各アイテムに詳細フィールドを付与
   const enrichedItems = dataItems.map((item) => ({
@@ -3472,15 +3818,18 @@ function exportTagVCard(tag, dataItems) {
 }
 
 // 7. CSVインポート
-function importCSV(event) {
+async function importCSV(event) {
   const file = event.target.files[0];
   const inputElement = event.target; // 同期的に退避させておく
   if (!file) return;
 
   // 5MB (5 * 1024 * 1024 bytes) を超える場合は警告してクラッシュを防ぐ
   if (file.size > 5242880) {
-    alert(
+    await window.requestCustomPrompt(
+      "エラー",
       "ファイルサイズが大きすぎます（5MB上限）。ブラウザがクラッシュするのを防ぐため読み込みを中止しました。",
+      "",
+      "alert",
     );
     inputElement.value = "";
     return;
@@ -3493,8 +3842,10 @@ function importCSV(event) {
     inputElement.value = "";
   };
   reader.onerror = function () {
-    alert(
+    showToast(
       "ファイルの読み込みに失敗しました。ファイルが破損しているか、メモリが不足しています。",
+      "⚠️",
+      "error",
     );
     inputElement.value = "";
   };
@@ -3507,8 +3858,13 @@ function showCSVModal() {
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   lockScroll();
-  document.getElementById("app-ui")?.setAttribute("inert", "");
+  toggleMainUI(true);
   updateCSVPreview(); // プレビューとマッピングを初期描画
+
+  setTimeout(() => {
+    const firstInput = document.getElementById("map-date");
+    if (firstInput) firstInput.focus();
+  }, 100);
 }
 
 // CSVプレビューとマッピングを更新する (文字コード変更時にも呼ばれる)
@@ -3524,39 +3880,60 @@ function updateCSVPreview() {
 
     pendingCSVData = []; // グローバル変数を更新
     let currentLine = [];
-    let currentCellChars = [];
     let inQuotes = false;
+    let cellStart = 0;
+    let hasEscapedQuote = false;
 
-    for (let i = 0; i < text.length; i++) {
+    const extractCSVCell = (str, start, end, hasEscaped) => {
+      let cell = str.substring(start, end);
+      if (cell.length >= 2 && cell.startsWith('"') && cell.endsWith('"')) {
+        cell = cell.substring(1, cell.length - 1);
+      }
+      if (hasEscaped) {
+        cell = cell.replace(/""/g, '"');
+      }
+      return cell;
+    };
+
+    if (text.length > 0 && text.charCodeAt(0) === 0xfeff) {
+      cellStart = 1;
+    }
+
+    for (let i = cellStart; i < text.length; i++) {
       const char = text[i];
       const nextChar = text[i + 1];
 
-      // BOMのスキップ
-      if (i === 0 && char.charCodeAt(0) === 0xfeff) continue;
-
       if (char === '"' && nextChar === '"') {
-        currentCellChars.push('"');
+        hasEscapedQuote = true;
         i++; // エスケープされたクオートをスキップ
       } else if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === "," && !inQuotes) {
-        currentLine.push(currentCellChars.join(""));
-        currentCellChars = [];
+        currentLine.push(extractCSVCell(text, cellStart, i, hasEscapedQuote));
+        cellStart = i + 1;
+        hasEscapedQuote = false;
       } else if ((char === "\n" || char === "\r") && !inQuotes) {
+        let lineEnd = i;
         if (char === "\r" && nextChar === "\n") i++; // \r\n の対応
-        currentLine.push(currentCellChars.join(""));
+
+        currentLine.push(
+          extractCSVCell(text, cellStart, lineEnd, hasEscapedQuote),
+        );
         pendingCSVData.push(currentLine);
         currentLine = [];
-        currentCellChars = [];
-      } else {
-        currentCellChars.push(char);
+        cellStart = i + 1;
+        hasEscapedQuote = false;
       }
     }
-    // 最後の行をプッシュ
-    if (currentLine.length > 0 || currentCellChars.length > 0) {
-      currentLine.push(currentCellChars.join(""));
+
+    // 最後のセルをプッシュ
+    if (cellStart <= text.length) {
+      currentLine.push(
+        extractCSVCell(text, cellStart, text.length, hasEscapedQuote),
+      );
       pendingCSVData.push(currentLine);
     }
+
     // 最終行の空行を無視
     if (
       pendingCSVData.length > 0 &&
@@ -3616,10 +3993,9 @@ function updateCSVPreview() {
   mapMemo.value = oldVals.memo;
   mapContact.value = oldVals.contact;
 
-  if (mapDate.selectedIndex < 1 && maxCols >= 1) mapDate.value = "0";
-  if (mapRole && mapRole.selectedIndex < 1 && maxCols >= 4) mapRole.value = "3"; // 4列以上あれば適当に
-  if (mapMemo.selectedIndex < 1 && maxCols >= 2) mapMemo.value = "1";
-  if (mapContact.selectedIndex < 1 && maxCols >= 3) mapContact.value = "2";
+  // 日付と役割は任意なので、列数が多くても勝手に割り当てない
+  if (mapMemo.selectedIndex < 1 && maxCols >= 1) mapMemo.value = "0"; // 1列目は名前にしておくのが王道
+  if (mapContact.selectedIndex < 1 && maxCols >= 2) mapContact.value = "1"; // 2列目を連絡先に
 
   renderCSVPreview();
 }
@@ -3702,12 +4078,12 @@ function closeCSVModal() {
   modal.classList.add("hidden");
   modal.classList.remove("flex");
   unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
+  toggleMainUI(false);
   pendingCSVData = [];
   pendingCSVBuffer = null;
 }
 
-function executeCSVImport() {
+async function executeCSVImport() {
   const mapDate = parseInt(document.getElementById("map-date").value, 10);
   const mapRoleEl = document.getElementById("map-role");
   const mapRole = mapRoleEl ? parseInt(mapRoleEl.value, 10) : -1;
@@ -3717,7 +4093,11 @@ function executeCSVImport() {
     parseInt(document.getElementById("csv-skip-rows").value, 10) || 0;
 
   if (mapMemo === -1 && mapContact === -1) {
-    alert("「メモ(氏名)」または「連絡先」のいずれかの列を選択してください。");
+    showToast(
+      "「メモ(氏名)」または「連絡先」のいずれかの列を選択してください。",
+      "⚠️",
+      "warning",
+    );
     return;
   }
 
@@ -3739,15 +4119,19 @@ function executeCSVImport() {
       null,
     ]);
     const parentRes = db.exec("SELECT last_insert_rowid()");
-    const parentId = parentRes[0].values[0][0];
+    const parentId = parentRes[0]?.values?.[0]?.[0];
+    if (!parentId) throw new Error("親IDの取得に失敗しました");
 
     const startIndex = Math.max(0, skipRows);
 
     const MAX_IMPORT_ROWS = 3000;
     const rowsToProcess = dataToImport.length - startIndex;
     if (rowsToProcess > MAX_IMPORT_ROWS) {
-      alert(
-        `⚠️ データが多すぎます（${rowsToProcess}行）。\nブラウザのフリーズを防ぐため、最初の${MAX_IMPORT_ROWS}行のみをインポートします。\n残りのデータはCSVを分割してインポートしてください。`,
+      await window.requestCustomPrompt(
+        "警告",
+        `データが多すぎます（${rowsToProcess}行）。\nブラウザのフリーズを防ぐため、最初の${MAX_IMPORT_ROWS}行のみをインポートします。\n残りのデータはCSVを分割してインポートしてください。`,
+        "",
+        "alert",
       );
     }
     const endIndex = Math.min(
@@ -3768,7 +4152,7 @@ function executeCSVImport() {
         "INSERT INTO records (parent_id, memo, contact_info, created_at, role) VALUES (?, ?, ?, ?, ?)",
       );
       checkStmt = db.prepare(
-        "SELECT 1 FROM records WHERE memo = ? AND contact_info = ? LIMIT 1",
+        "SELECT 1 FROM records WHERE memo = ? AND IFNULL(contact_info, '') = IFNULL(?, '') LIMIT 1",
       );
     } catch (e) {
       console.warn("インポート用SQLの準備に失敗しました", e);
@@ -3877,7 +4261,7 @@ function executeCSVImport() {
     showToast(msg, '<span class="text-green-400">✨</span>');
   } catch (err) {
     db.run("ROLLBACK;");
-    alert("インポート中にエラーが発生しました。");
+    showToast("インポート中にエラーが発生しました。", "⚠️", "error");
     console.error(err);
   } finally {
     if (suggestStmt) suggestStmt.free();
@@ -3921,7 +4305,7 @@ function copyAsMarkdown() {
     "SELECT c.memo, p.memo, c.role, c.contact_info FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
   );
   if (res.length === 0) {
-    alert("コピーするデータがありません。");
+    showToast("コピーするデータがありません。", "⚠️", "warning");
     return;
   }
 
@@ -4070,7 +4454,12 @@ function showContactDetail(recordId) {
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   lockScroll();
-  document.getElementById("app-ui")?.setAttribute("inert", "");
+  toggleMainUI(true);
+
+  setTimeout(() => {
+    const firstInput = document.getElementById("detail-family-name");
+    if (firstInput) firstInput.focus();
+  }, 100);
 }
 
 function closeContactDetail() {
@@ -4078,7 +4467,7 @@ function closeContactDetail() {
   modal.classList.add("hidden");
   modal.classList.remove("flex");
   unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
+  toggleMainUI(false);
   if (preDetailActiveElement) {
     preDetailActiveElement.focus();
     preDetailActiveElement = null;
@@ -4221,24 +4610,36 @@ function exportGoogleCSV() {
     while (stmt.step()) {
       const [id, memo, org, role, contact] = stmt.get();
       const fields = getContactFields(id);
+      const usedFields = new Set();
       const row = headers.map((h) => {
         const m = map[h];
         const match = fields.find(
           (f) =>
             f.field_key === m.key &&
             (m.type ? f.field_type === m.type : true) &&
-            (m.order !== undefined ? f.sort_order === m.order : true),
+            !usedFields.has(f.id),
         );
-        if (match) return match.field_value;
-
-        if (match && match.field_value) return match.field_value;
+        if (match) {
+          usedFields.add(match.id);
+          return match.field_value;
+        }
 
         if (m.key === "given_name") return memo || "";
         if (m.key === "company") return org || "";
         if (m.key === "job_title") return role || "";
-        if (m.key === "email" && contact && contact.includes("@"))
+        if (
+          m.key === "email" &&
+          (m.order === undefined || m.order === 0) &&
+          contact &&
+          contact.includes("@")
+        )
           return contact;
-        if (m.key === "phone" && contact && !contact.includes("@"))
+        if (
+          m.key === "phone" &&
+          (m.order === undefined || m.order === 0) &&
+          contact &&
+          !contact.includes("@")
+        )
           return contact;
 
         return "";
@@ -4250,14 +4651,15 @@ function exportGoogleCSV() {
   }
 
   if (rows.length <= 1) {
-    alert("エクスポートする連絡先がありません。");
+    showToast("エクスポートする連絡先がありません。", "⚠️", "warning");
     return;
   }
   const csv = rows
     .map((r) =>
       r
         .map((v) => {
-          let cell = v || "";
+          // 明示的に文字列(String)にキャストし、TypeErrorを防ぐ
+          let cell = String(v || "");
           if (/^[=+\-@\t\r]/.test(cell)) {
             cell = "'" + cell;
           }
@@ -4288,24 +4690,36 @@ function exportOutlookCSV() {
     while (stmt.step()) {
       const [id, memo, org, role, contact] = stmt.get();
       const fields = getContactFields(id);
+      const usedFields = new Set();
       const row = headers.map((h) => {
         const m = map[h];
         const match = fields.find(
           (f) =>
             f.field_key === m.key &&
             (m.type ? f.field_type === m.type : true) &&
-            (m.order !== undefined ? f.sort_order === m.order : true),
+            !usedFields.has(f.id),
         );
-        if (match) return match.field_value;
-
-        if (match && match.field_value) return match.field_value;
+        if (match) {
+          usedFields.add(match.id);
+          return match.field_value;
+        }
 
         if (m.key === "given_name") return memo || "";
         if (m.key === "company") return org || "";
         if (m.key === "job_title") return role || "";
-        if (m.key === "email" && contact && contact.includes("@"))
+        if (
+          m.key === "email" &&
+          (m.order === undefined || m.order === 0) &&
+          contact &&
+          contact.includes("@")
+        )
           return contact;
-        if (m.key === "phone" && contact && !contact.includes("@"))
+        if (
+          m.key === "phone" &&
+          (m.order === undefined || m.order === 0) &&
+          contact &&
+          !contact.includes("@")
+        )
           return contact;
 
         return "";
@@ -4317,14 +4731,15 @@ function exportOutlookCSV() {
   }
 
   if (rows.length <= 1) {
-    alert("エクスポートする連絡先がありません。");
+    showToast("エクスポートする連絡先がありません。", "⚠️", "warning");
     return;
   }
   const csv = rows
     .map((r) =>
       r
         .map((v) => {
-          let cell = v || "";
+          // 明示的に文字列(String)にキャストし、TypeErrorを防ぐ
+          let cell = String(v || "");
           if (/^[=+\-@\t\r]/.test(cell)) {
             cell = "'" + cell;
           }
@@ -4493,7 +4908,7 @@ function toggleCommandPalette() {
     palette.classList.remove("hidden");
     palette.classList.add("flex");
     lockScroll();
-    document.getElementById("app-ui")?.setAttribute("inert", "");
+    toggleMainUI(true);
     input.value = "";
     selectedCommandIndex = 0;
     renderCommandList();
@@ -4507,7 +4922,7 @@ function toggleCommandPalette() {
     palette.classList.add("hidden");
     palette.classList.remove("flex");
     unlockScroll();
-    document.getElementById("app-ui")?.removeAttribute("inert");
+    toggleMainUI(false);
     if (prePaletteActiveElement) {
       prePaletteActiveElement.focus();
       prePaletteActiveElement = null;
@@ -4537,11 +4952,11 @@ function getDynamicCommands() {
             keepOpen: true, // パレットを閉じない設定
             action: async () => {
               if (
-                await requestCustomPrompt(
+                await window.requestCustomPrompt(
                   "テンプレートの削除",
                   `テンプレート「${row[1]}」を削除しますか？`,
                   "",
-                  true,
+                  "confirm",
                 )
               ) {
                 db.run("DELETE FROM templates WHERE id = ?", [row[0]]);
@@ -4575,60 +4990,59 @@ function getFilteredCommands(query) {
   if (terms.length > 0 && db) {
     let stmt;
     try {
-      const conditions = terms
-        .map(() => "(LOWER(c.memo) LIKE ? OR LOWER(c.contact_info) LIKE ?)")
-        .join(" AND ");
-      const params = terms.flatMap((t) => [`%${t}%`, `%${t}%`]);
-
-      const pCond = terms.map(() => "(LOWER(memo) LIKE ?)").join(" AND ");
-      const pParams = terms.flatMap((t) => [`%${t}%`]);
-
+      // WHERE条件を外し、親を持つレコードを全取得
       stmt = db.prepare(
-        `SELECT id, memo, '', id FROM records WHERE parent_id IS NULL AND ${pCond} UNION SELECT c.id, c.memo, p.memo, p.id FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL AND ${conditions} LIMIT 8`,
+        `SELECT c.id, c.memo, p.memo, p.id, c.contact_info FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL`,
       );
-      stmt.bind([...pParams, ...params]);
       while (stmt.step()) {
-        const [id, name, org, parentId] = stmt.get();
-        filtered.unshift({
-          id: `search_${id}`,
-          icon: '<svg class="w-5 h-5 text-primary"><use href="#icon-search"></use></svg>',
-          title: `<span class="text-primary font-bold">${escapeHtml(name)}</span> <span class="text-xs text-slate-400 dark:text-slate-500 ml-2">(${escapeHtml(org)})</span>`,
-          keepOpen: false,
-          action: () => {
-            let delay = 0;
+        const [id, name, org, parentId, contact] = stmt.get();
+        const targetText =
+          normalize(name) + " " + normalize(contact) + " " + normalize(org);
 
-            // 対象がDOMにいない可能性を防ぐため、フィルター中なら解除して再描画する
-            if (currentActiveTag !== null) {
-              currentActiveTag = null;
-              renderData();
-              delay = 150; // 再描画を待つ
-            }
+        // JS側で完全な正規化テキストに対してマッチング
+        if (terms.every((term) => targetText.includes(term))) {
+          filtered.unshift({
+            id: `search_${id}`,
+            icon: '<svg class="w-5 h-5 text-primary"><use href="#icon-search"></use></svg>',
+            title: `<span class="text-primary font-bold">${escapeHtml(name)}</span> <span class="text-xs text-slate-400 dark:text-slate-500 ml-2">(${escapeHtml(org)})</span>`,
+            keepOpen: false,
+            action: () => {
+              let delay = 0;
 
-            // 親ブロックが折りたたまれていれば展開する
-            if (collapsedBlocks.has(parentId)) {
-              toggleBlock(parentId);
-              delay = 310;
-              delay = Math.max(delay, 310);
-            }
-
-            setTimeout(() => {
-              // 対象の名前要素にジャンプしてフォーカスを当てる
-              const el = document.querySelector(
-                `span[data-id="${id}"][data-field="memo"]`,
-              );
-              if (el) {
-                el.scrollIntoView({ behavior: "smooth", block: "center" });
-                el.focus();
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(el);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
+              // 対象がDOMにいない可能性を防ぐため、フィルター中なら解除して再描画する
+              if (currentActiveTag !== null) {
+                currentActiveTag = null;
+                renderData();
+                delay = 150; // 再描画を待つ
               }
-            }, delay);
-          },
-        });
+
+              // 親ブロックが折りたたまれていれば展開する
+              if (collapsedBlocks.has(parentId)) {
+                toggleBlock(parentId);
+                delay = 310;
+                delay = Math.max(delay, 310);
+              }
+
+              setTimeout(() => {
+                // 対象の名前要素にジャンプしてフォーカスを当てる
+                const el = document.querySelector(
+                  `span[data-id="${id}"][data-field="memo"]`,
+                );
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.focus();
+                  const range = document.createRange();
+                  const sel = window.getSelection();
+                  range.selectNodeContents(el);
+                  range.collapse(false);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }
+              }, delay);
+            },
+          });
+          if (filtered.length > 20) break; // 多すぎる場合は20件で打ち切り
+        }
       }
     } catch (e) {
       console.error("Search command failed:", e);
@@ -4644,6 +5058,11 @@ function renderCommandList(query = "") {
   list.innerHTML = "";
 
   const filtered = getFilteredCommands(query);
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="px-4 py-8 text-center text-slate-400 text-sm">「${escapeHtml(query)}」に一致するコマンドや連絡先は見つかりませんでした</div>`;
+    return;
+  }
 
   if (selectedCommandIndex >= filtered.length) selectedCommandIndex = 0;
 
@@ -4720,6 +5139,8 @@ document.addEventListener("keydown", (e) => {
   }
 
   if (e.key === "Escape") {
+    if (e.isComposing) return;
+
     const dropOverlay = document.getElementById("drop-overlay");
     if (dropOverlay && !dropOverlay.classList.contains("hidden")) {
       dropOverlay.classList.add("hidden");
@@ -4749,10 +5170,6 @@ document.addEventListener("keydown", (e) => {
       closeExportModal();
       return;
     }
-    if (!document.getElementById("tag-modal").classList.contains("hidden")) {
-      closeTagModal();
-      return;
-    }
     if (
       !document
         .getElementById("role-dict-editor-modal")
@@ -4779,8 +5196,25 @@ document.addEventListener("keydown", (e) => {
     // ✅ 結果が0件の時の NaN クラッシュを防止
     if (
       filtered.length === 0 &&
-      (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")
+      (e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "Enter" ||
+        e.key === "Tab")
     ) {
+      if (e.key === "Tab") e.preventDefault();
+      return;
+    }
+
+    // Tabキーの挙動をオーバーライドして上下移動に割り当てる
+    if (e.key === "Tab") {
+      e.preventDefault(); // フォーカス移動を阻止
+      if (e.shiftKey) {
+        selectedCommandIndex =
+          (selectedCommandIndex - 1 + filtered.length) % filtered.length;
+      } else {
+        selectedCommandIndex = (selectedCommandIndex + 1) % filtered.length;
+      }
+      renderCommandList(input.value);
       return;
     }
 
@@ -4818,7 +5252,15 @@ function applyTocFilter(query) {
 
   tocItems.forEach((item) => {
     const text = item.textContent.toLowerCase();
-    item.style.display = text.includes(q) ? "block" : "none";
+    const isVisible = text.includes(q);
+    item.style.display = isVisible ? "block" : "none";
+
+    // ★ メイン画面の該当ブロックもリアルタイムに連動して表示/非表示（フィルタ）を切り替える
+    const blockId = item.getAttribute("href").replace("#", "");
+    const mainBlock = document.getElementById(blockId);
+    if (mainBlock) {
+      mainBlock.style.display = isVisible ? "block" : "none";
+    }
   });
 
   // 検索入力中はタグ一覧のエリアを非表示にしてノイズを消す
@@ -4837,29 +5279,39 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // --- マルチタブ起動によるデータ競合の防止 ---
-const bc = new BroadcastChannel("grindpeople_app_channel");
 let hasAlerted = false;
 
-bc.onmessage = (e) => {
-  if (e.data === "ping") {
-    bc.postMessage("pong"); // すでに開いているタブが応答する
-  } else if (e.data === "pong") {
-    // 自分が後から開いたタブだった場合
-    if (!hasAlerted) {
-      hasAlerted = true;
-      alert(
-        "⚠️ Peopleは既に別のタブまたはウィンドウで開かれています。\n\nデータ競合（バックアップの巻き戻り）を防ぐため、このタブでの編集は行わないでください。",
-      );
-      document.body.style.opacity = "0.5";
-      document.body.style.pointerEvents = "none";
-    }
-  }
-};
-bc.postMessage("ping");
+if (typeof BroadcastChannel !== "undefined") {
+  const bc = new BroadcastChannel("grindpeople_app_channel");
 
+  bc.onmessage = async (e) => {
+    if (e.data === "ping") {
+      bc.postMessage("pong"); // すでに開いているタブが応答する
+    } else if (e.data === "pong") {
+      // 自分が後から開いたタブだった場合
+      if (!hasAlerted) {
+        hasAlerted = true;
+        await window.requestCustomPrompt(
+          "警告",
+          "Peopleは既に別のタブまたはウィンドウで開かれています。\n\nデータ競合（バックアップの巻き戻り）を防ぐため、このタブでの編集は行わないでください。",
+          "",
+          "alert",
+        );
+        document.body.style.opacity = "0.5";
+        document.body.style.pointerEvents = "none";
+      }
+    }
+  };
+  bc.postMessage("ping");
+}
+
+let cmdSearchTimeout = null;
 document.getElementById("cmd-input")?.addEventListener("input", (e) => {
-  selectedCommandIndex = 0;
-  renderCommandList(e.target.value);
+  clearTimeout(cmdSearchTimeout);
+  cmdSearchTimeout = setTimeout(() => {
+    selectedCommandIndex = 0;
+    renderCommandList(e.target.value);
+  }, 100);
 });
 
 // --- パスワード表示トグル ---
@@ -4987,7 +5439,7 @@ function showRoleDictEditor() {
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   lockScroll();
-  document.getElementById("app-ui")?.setAttribute("inert", "");
+  toggleMainUI(true);
   renderCustomDictEditor();
 
   document.getElementById("add-custom-dict-form").onsubmit = (e) => {
@@ -5013,7 +5465,7 @@ function closeRoleDictEditor() {
   modal.classList.add("hidden");
   modal.classList.remove("flex");
   unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
+  toggleMainUI(false);
   // 変更を保存せずに閉じた場合は、元の状態に戻す
   loadCustomDict();
 }
@@ -5025,7 +5477,7 @@ function saveCustomDictAndClose() {
   modal.classList.add("hidden");
   modal.classList.remove("flex");
   unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
+  toggleMainUI(false);
 }
 
 function renderCustomDictEditor() {
@@ -5106,10 +5558,14 @@ function moveCustomDictItem(index, direction) {
   renderCustomDictEditor();
 }
 
-function deleteCustomDictItem(index) {
-  if (
-    confirm(`「${customRoleDict[index].name}」を辞書から完全に削除しますか？`)
-  ) {
+async function deleteCustomDictItem(index) {
+  const isConfirmed = await window.requestCustomPrompt(
+    "削除の確認",
+    `「${customRoleDict[index].name}」を辞書から完全に削除しますか？`,
+    "",
+    "confirm",
+  );
+  if (isConfirmed) {
     customRoleDict.splice(index, 1);
     renderCustomDictEditor();
   }
@@ -5129,65 +5585,21 @@ function setAllCustomRolesHidden(isHidden) {
   renderCustomDictEditor();
 }
 
-// --- ハッシュタグモーダル制御 ---
-function showTagModal(tag, data) {
-  const modal = document.getElementById("tag-modal");
-  document.getElementById("tag-modal-title").textContent = tag;
-  document.getElementById("tag-modal-total").textContent = data.count + "人";
-
-  const exportBtn = document.getElementById("tag-modal-export-btn");
-  if (exportBtn) {
-    exportBtn.onclick = () => exportTagVCard(tag, data.items);
-  }
-
-  const tbody = document.getElementById("tag-modal-body");
-  tbody.innerHTML = "";
-
-  // 日付の降順にソートして明細を表示
-  const sortedItems = data.items.sort((a, b) =>
-    (b.date || "").localeCompare(a.date || ""),
-  );
-
-  sortedItems.forEach((item) => {
-    let dateDisp = "日付なし";
-    if (item.date) {
-      const parts = item.date.split(" ")[0].split("-");
-      if (parts.length === 3)
-        dateDisp = `${escapeHtml(parts[1])}/${escapeHtml(parts[2])}`;
-    }
-
-    tbody.innerHTML += `
-      <tr class="hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0">
-        <td class="py-4 px-6 w-20 text-xs text-slate-400 font-mono">${dateDisp}</td>
-        <td class="py-4 px-4 text-slate-700 font-medium">${escapeHtml(item.memo)}</td>
-        <td class="py-4 px-6 text-right tabular-nums tracking-tight font-bold text-slate-600">${escapeHtml(item.contact_info)}</td>
-      </tr>
-    `;
-  });
-
-  modal.classList.remove("hidden");
-  modal.classList.add("flex");
-  lockScroll();
-  document.getElementById("app-ui")?.setAttribute("inert", "");
-}
-
-function closeTagModal() {
-  const modal = document.getElementById("tag-modal");
-  modal.classList.add("hidden");
-  modal.classList.remove("flex");
-  unlockScroll();
-  document.getElementById("app-ui")?.removeAttribute("inert");
-}
-
 if (!window.isSecureContext) {
-  alert(
-    "⚠️ セキュリティ警告 ⚠️\n\n現在のアクセス環境 (HTTP) では、ブラウザのセキュリティ制限によりファイルの読み書きや暗号化機能がブロックされます。\n\nGrindPeopleを正常に動作させるには、必ず「HTTPS」環境にアップロードするか、「localhost」で実行してください。",
-  );
-  showToast(
-    "エラー: HTTPS環境またはlocalhostでの実行が必要です",
-    '<span class="text-red-400">⚠️</span>',
-    "warning",
-  );
+  document.addEventListener("DOMContentLoaded", async () => {
+    await window.requestCustomPrompt(
+      "⚠️ セキュリティ警告 ⚠️",
+      "現在のアクセス環境 (HTTP) では、ブラウザのセキュリティ制限によりファイルの読み書きや暗号化機能がブロックされます。\n\nGrindPeopleを正常に動作させるには、必ず「HTTPS」環境にアップロードするか、「localhost」で実行してください。",
+      "",
+      "alert",
+    );
+    showToast(
+      "エラー: HTTPS環境またはlocalhostでの実行が必要です",
+      '<span class="text-red-400">⚠️</span>',
+      "warning",
+    );
+    hideStatus();
+  });
 } else {
   // DOMとすべてのCDNスクリプトの読み込みが完了してからSQLiteを起動する (ReferenceError防止)
   document.addEventListener("DOMContentLoaded", initSQLite);
@@ -5272,6 +5684,19 @@ document.addEventListener("dragleave", (e) => {
   }
 });
 
+dropOverlay.addEventListener("dragover", (e) => {
+  if (hasFiles(e)) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+});
+dropOverlay.addEventListener("dragenter", (e) => {
+  if (hasFiles(e)) e.preventDefault();
+});
+dropOverlay.addEventListener("dragleave", (e) => {
+  if (hasFiles(e)) e.preventDefault();
+});
+
 // 4. ドロップされたときの処理
 document.addEventListener("drop", async (e) => {
   if (!hasFiles(e)) return;
@@ -5312,18 +5737,20 @@ document.addEventListener("drop", async (e) => {
   if (isCommandPaletteOpen) toggleCommandPalette();
   closeCSVModal();
   closeExportModal();
-  closeTagModal();
   closeRoleDictEditor();
 
   // 拡張子に応じて処理を分岐
   if (file.name.endsWith(".people")) {
     if (isDirty) {
-      if (
-        !confirm(
-          "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
-        )
-      )
+      const isConfirmed = await window.requestCustomPrompt(
+        "確認",
+        "未保存のデータがあります。変更を破棄して別のファイルを開きますか？",
+        "",
+        "confirm",
+      );
+      if (!isConfirmed) {
         return;
+      }
     }
     if (handle && handle.kind === "file") {
       await processFileHandle(handle);
@@ -5350,8 +5777,10 @@ document.addEventListener("drop", async (e) => {
       csvInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
   } else {
-    alert(
+    showToast(
       "サポートされていないファイルです。.people または .csv 形式のファイルをドロップしてください。",
+      "⚠️",
+      "error",
     );
   }
 });
