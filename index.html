@@ -316,15 +316,17 @@
       </header>
 
       <!-- DBステータス -->
-      <div id="status"
-        class="top-4 sm:top-8 left-1/2 z-50 fixed flex items-center gap-2 bg-slate-800/90 opacity-100 shadow-xl backdrop-blur-sm px-5 py-2.5 border border-slate-700/50 rounded-full font-medium text-white text-xs transition-all -translate-x-1/2 translate-y-0 duration-500">
-        <svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-          </path>
-        </svg>
-        <span data-i18n="status.loading">Starting SQLite engine...</span>
+      <div class="fixed top-4 sm:top-8 inset-x-0 z-50 flex justify-center pointer-events-none">
+        <div id="status"
+          class="flex w-max items-center gap-2 bg-slate-800/90 opacity-100 shadow-xl backdrop-blur-sm px-5 py-2.5 border border-slate-700/50 rounded-full font-medium text-white text-xs transition-all translate-y-0 duration-500 pointer-events-auto">
+          <svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+            </path>
+          </svg>
+          <span data-i18n="status.loading">Starting SQLite engine...</span>
+        </div>
       </div>
 
       <!-- アプリUI -->
@@ -855,7 +857,7 @@
                   <button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">${window._t('update.apply')}</button>
                   <button onclick="this.parentElement.style.opacity='0'; setTimeout(()=>this.parentElement.style.display='none', 500);" class="ml-3 text-slate-400 hover:text-white">&times;</button>
                 `;
-                statusEl.className = "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
+                statusEl.className = "flex w-max items-center gap-2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 translate-y-0 opacity-100 pointer-events-auto";
                 statusEl.style.pointerEvents = "auto";
 
                 document.getElementById("btn-reload-app").onclick = async () => {

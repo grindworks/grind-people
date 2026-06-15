@@ -4,7 +4,6 @@ let fileHandle = null; // File System Access APIのファイルハンドル
 let isDirty = false; // 未保存の変更があるかどうか
 window.getIsDirty = () => isDirty;
 let pendingCSVData = []; // CSVパース結果の一時保存
-let lastUsedDates = {}; // ブロックごとの最終使用日付を記憶
 let pendingCSVBuffer = null; // CSVのバイナリデータ
 let currentActiveTag = null; // 現在選択中のカテゴリ（タグ）
 let currentDisplayedTotal = 0; // カウントアップ用
@@ -922,49 +921,6 @@ function clearContactFieldsByKey(recordId, fieldKey) {
   } catch (e) {}
 }
 
-function getFieldValue(recordId, fieldKey, fieldType) {
-  if (!db) return null;
-  let stmt;
-  try {
-    if (fieldType) {
-      stmt = db.prepare(
-        "SELECT field_value FROM contact_fields WHERE record_id = ? AND field_key = ? AND field_type = ? LIMIT 1",
-      );
-      stmt.bind([recordId, fieldKey, fieldType]);
-    } else {
-      stmt = db.prepare(
-        "SELECT field_value FROM contact_fields WHERE record_id = ? AND field_key = ? LIMIT 1",
-      );
-      stmt.bind([recordId, fieldKey]);
-    }
-    if (stmt.step()) return stmt.get()[0];
-  } catch (e) {
-  } finally {
-    if (stmt) stmt.free();
-  }
-  return null;
-}
-
-function getFieldValues(recordId, fieldKey) {
-  if (!db) return [];
-  const values = [];
-  let stmt;
-  try {
-    stmt = db.prepare(
-      "SELECT field_value, field_type, sort_order FROM contact_fields WHERE record_id = ? AND field_key = ? ORDER BY sort_order ASC",
-    );
-    stmt.bind([recordId, fieldKey]);
-    while (stmt.step()) {
-      const [v, t, o] = stmt.get();
-      values.push({ value: v, type: t, sort_order: o });
-    }
-  } catch (e) {
-  } finally {
-    if (stmt) stmt.free();
-  }
-  return values;
-}
-
 // vCardパーサー: vCardテキスト → レコード配列
 function parseVCardText(text) {
   const contacts = [];
@@ -975,11 +931,11 @@ function parseVCardText(text) {
   for (const card of cards) {
     if (!card.match(/BEGIN:VCARD/i)) continue;
     const contact = { fields: [], displayName: "", org: "" };
-    // MIMEタイプ（スラッシュ等）が含まれていても確実に写真をパージしフリーズを防ぐ
-    const photoRemovedCard = card.replace(/^PHOTO[^:]*:.*(?:\r?\n[ \t].*)*\r?\n?/gmi, "");
-    // Unfold (RFC 6350: 行継続)
-    const unfolded = photoRemovedCard.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
-    const lines = unfolded.split(/\r\n|\r|\n/);
+
+    // 💡 修正: フリーズ（Catastrophic Backtracking）を防ぐため、先にUnfold（行継続の結合）を行ってからシンプルな正規表現でパージする
+    const unfolded = card.replace(/\r?\n[ \t]/g, "");
+    const photoRemovedCard = unfolded.replace(/^PHOTO[^:]*:.*\r?\n?/gmi, "");
+    const lines = photoRemovedCard.split(/\r?\n/);
     for (const line of lines) {
       if (!line || line.match(/^(BEGIN|END|VERSION):/i)) continue;
       const colonIdx = line.indexOf(":");
@@ -1520,7 +1476,7 @@ function showToast(message, iconHtml = "✅", type = "normal") {
     container.id = "toast-container";
     container.setAttribute("aria-live", "polite");
     container.className =
-      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none w-full px-4 max-w-md";
+      "fixed bottom-10 sm:bottom-12 inset-x-0 z-[9999] flex flex-col-reverse items-center gap-2 pointer-events-none px-4 pb-[env(safe-area-inset-bottom)]";
     document.body.appendChild(container);
   }
 
@@ -1589,9 +1545,6 @@ function addBlock() {
 function addItem(parentId, memo, contactInfo, dateStr, roleStr) {
   const safeMemo = (memo || "").trim();
   if (!safeMemo && !contactInfo) return;
-  if (parentId) {
-    if (dateStr) lastUsedDates[parentId] = dateStr;
-  }
 
   if (dateStr) {
     const today = new Date();
@@ -1765,6 +1718,7 @@ function updateRecord(id, field, newValue, element) {
   }
 
   // 変更があるかチェック (内容が変わっていない場合は何もしない)
+  let oldValForEAV = null;
   let checkStmt;
   try {
     checkStmt = db.prepare(`SELECT ${field} FROM records WHERE id = ?`);
@@ -1775,6 +1729,7 @@ function updateRecord(id, field, newValue, element) {
         // 型の違い（"100"と100など）を許容するため == を使用
         return; // 変更なし
       }
+      oldValForEAV = currentVal; // 💡 変更前の値を安全に退避しておく
     }
   } finally {
     if (checkStmt) checkStmt.free();
@@ -1793,16 +1748,24 @@ function updateRecord(id, field, newValue, element) {
     clearContactFieldsByKey(id, "job_title");
     if (val) setContactField(id, "job_title", val, "other", 0);
   } else if (field === "contact_info") {
+    // 💡 修正: もう片方の連絡先を巻き添えで消さないよう、退避済みの変更前の値からタイプを特定する
+    const oldVal = oldValForEAV;
+    const oldType = (oldVal && oldVal.includes("@")) ? "email" : "phone";
+
     if (val) {
-      const type = val.includes("@") ? "email" : "phone";
+      const newType = val.includes("@") ? "email" : "phone";
       const subType = val.includes("@") ? "work" : "mobile";
-      db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key IN ('phone', 'email') AND sort_order = 0", [id]);
-      setContactField(id, type, val, subType, 0);
+
+      if (oldVal) {
+        db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, oldType]);
+      }
+      db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, newType]);
+
+      setContactField(id, newType, val, subType, 0);
     } else {
-      db.run(
-        "DELETE FROM contact_fields WHERE record_id = ? AND field_key IN ('phone', 'email') AND sort_order = 0",
-        [id],
-      );
+      if (oldVal) {
+        db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, oldType]);
+      }
     }
   }
 
@@ -1821,37 +1784,48 @@ function updateRecord(id, field, newValue, element) {
         (!cInfo || cInfo.trim() === "") &&
         (!r || r.trim() === "")
       ) {
-        // 非同期に逃がすことで、現在のblurイベントやフォーカス移動を安全に完了させ、その後フォーカスを復元する
-        setTimeout(async () => {
-          let activeSel = null;
-          const el = document.activeElement;
-          if (
-            el &&
-            el.hasAttribute("data-id") &&
-            el.hasAttribute("data-field")
-          ) {
-            activeSel = `[data-id="${el.getAttribute("data-id")}"][data-field="${el.getAttribute("data-field")}"]`;
-          } else if (el && el.classList.contains("item-role")) {
-            const form = el.closest("form");
-            if (form) activeSel = `#${form.id} .item-role`;
-          }
+        // 💡 修正: 裏側に詳細データ（住所・メモなど）が存在しないか確認し、存在すれば削除をスキップする
+        let hasDetails = false;
+        try {
+          const detailStmt = db.prepare("SELECT 1 FROM contact_fields WHERE record_id = ? LIMIT 1");
+          detailStmt.bind([id]);
+          if (detailStmt.step()) hasDetails = true;
+          detailStmt.free();
+        } catch (e) {}
 
-          await deleteRecord(id, true);
+        if (!hasDetails) {
+          // 非同期に逃がすことで、現在のblurイベントやフォーカス移動を安全に完了させ、その後フォーカスを復元する
+          setTimeout(async () => {
+            let activeSel = null;
+            const el = document.activeElement;
+            if (
+              el &&
+              el.hasAttribute("data-id") &&
+              el.hasAttribute("data-field")
+            ) {
+              activeSel = `[data-id="${el.getAttribute("data-id")}"][data-field="${el.getAttribute("data-field")}"]`;
+            } else if (el && el.classList.contains("item-role")) {
+              const form = el.closest("form");
+              if (form) activeSel = `#${form.id} .item-role`;
+            }
 
-          if (activeSel) {
-            requestAnimationFrame(() => {
-              const target = document.querySelector(activeSel);
-              if (target) {
-                target.focus();
-                if (target.hasAttribute("contenteditable")) {
-                  window.getSelection().selectAllChildren(target);
-                  window.getSelection().collapseToEnd();
+            await deleteRecord(id, true);
+
+            if (activeSel) {
+              requestAnimationFrame(() => {
+                const target = document.querySelector(activeSel);
+                if (target) {
+                  target.focus();
+                  if (target.hasAttribute("contenteditable")) {
+                    window.getSelection().selectAllChildren(target);
+                    window.getSelection().collapseToEnd();
+                  }
                 }
-              }
-            });
-          }
-        }, 10);
-        return;
+              });
+            }
+          }, 10);
+          return;
+        }
       }
     }
   } catch (e) {
@@ -1951,8 +1925,9 @@ function updateRecord(id, field, newValue, element) {
     if (field === "memo" && element && element.tagName === "H2") {
       const tocItem = document.querySelector(`.toc-item[href="#block-${id}"]`);
       if (tocItem) {
-        tocItem.textContent = val || "(名称未設定)";
-        tocItem.title = val || "(名称未設定)";
+        // 💡 修正: ハードコーディングを排除し、i18n翻訳システムを使用
+        tocItem.textContent = val || window._t("label.unnamed");
+        tocItem.title = val || window._t("label.unnamed");
       }
     }
   }
@@ -2362,17 +2337,13 @@ function renderData(focusBlockId = null) {
         }
 
         const applyScroll = () => {
+          // 💡 DOMの折りたたみが落ち着くまで少し待機し、1回だけシンプルにスクロールさせる
           setTimeout(() => {
             const targetEl = document.getElementById(`block-${block.id}`);
             if (targetEl) {
-              targetEl.scrollIntoView({ behavior: "instant", block: "start" });
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
-                });
-              });
+              targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
             }
-          }, 100);
+          }, 150);
         };
 
         // 再描画して状態を反映
@@ -2576,9 +2547,9 @@ function renderData(focusBlockId = null) {
         btn.className =
           "text-left p-3 rounded-lg bg-slate-50 dark:bg-dark-bg hover:bg-slate-100 dark:hover:bg-dark-surface-hover border border-slate-100 dark:border-dark-border transition-colors flex flex-col gap-1 relative group cursor-pointer";
         btn.innerHTML = `
-          <span class="text-sm font-bold text-slate-700 truncate">${escapeHtml(tag)}</span>
+          <span class="text-sm font-bold text-slate-700 truncate pr-6">${escapeHtml(tag)}</span>
           <span class="text-xs tabular-nums tracking-tight text-slate-500">${data.count} ${window._t("unit.people")}</span>
-          <button class="export-btn absolute top-2 right-2 text-slate-300 hover:text-primary transition-colors p-1" title="${window._t("title.export_vcard")}">
+          <button class="export-btn absolute -top-1 -right-1 text-slate-300 hover:text-primary transition-colors p-3" title="${window._t("title.export_vcard")}">
             <svg class="w-4 h-4"><use href="#icon-download"></use></svg>
           </button>
         `;
@@ -2656,7 +2627,10 @@ function renderData(focusBlockId = null) {
               "font-bold",
             );
             const tocContainer = document.getElementById("toc-container");
-            if (tocContainer && !tocContainer.matches(":hover")) {
+            const tocFilter = document.getElementById("toc-filter");
+            const isFiltering = tocFilter && tocFilter.value.trim() !== "";
+
+            if (tocContainer && !tocContainer.matches(":hover") && !isFiltering) {
               // scrollIntoViewはページ全体のスクロールを阻害してカクつきを生むため、コンテナ内の相対位置で安全にスクロールさせる
               const scrollPos =
                 activeToc.offsetTop -
@@ -3039,7 +3013,6 @@ async function deleteRecord(id, force = false) {
 
   // ゾンビステートのクリーンアップ
   collapsedBlocks.delete(id);
-  delete lastUsedDates[id];
 
   setDirty(true);
   renderData();
@@ -3416,9 +3389,9 @@ async function savePeopleFile(isSaveAs = false) {
 async function processFileHandle(handle, isDummy = false) {
   const statusEl = document.getElementById("status");
   if (statusEl) {
-    statusEl.innerHTML = `<svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>ファイルを読み込み中...</span>`;
+    statusEl.innerHTML = `<svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span data-i18n="status.loading_file">${window._t("status.loading_file")}</span>`;
     statusEl.className =
-      "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 bg-blue-600/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl transition-all duration-300 z-50 flex items-center gap-2 translate-y-0 opacity-100";
+      "flex w-max items-center gap-2 bg-blue-600/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl transition-all duration-300 translate-y-0 opacity-100 pointer-events-auto";
   }
 
   await new Promise((resolve) =>
@@ -3492,7 +3465,6 @@ async function processFileHandle(handle, isDummy = false) {
     loadSettingsFromDb(); // ファイル固有の設定をUIに反映
 
     // 🎯 ファイル切り替え時のグローバル状態完全リセット（データ汚染防止）
-    lastUsedDates = {};
     collapsedBlocks.clear();
     currentActiveTag = null;
     currentDisplayedTotal = 0;
@@ -3550,9 +3522,13 @@ async function loadPeopleFile() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".people,*/*";
+    input.style.display = "none"; // 💡 画面に見えないようにする
+
     input.onchange = async (e) => {
       const file = e.target.files[0];
+      document.body.removeChild(input); // 💡 処理が終わったらDOMから削除
       if (!file) return;
+
       // ダミーハンドルを作って共通処理へ流す
       const dummyHandle = {
         getFile: async () => file,
@@ -3561,6 +3537,9 @@ async function loadPeopleFile() {
       };
       await processFileHandle(dummyHandle, true);
     };
+
+    // 💡 DOMに追加してからクリックしないとSafariで無視される
+    document.body.appendChild(input);
     input.click();
   }
 }
@@ -3614,9 +3593,9 @@ function exportCSV(format = "vcard") {
   if (format === "vcard") {
     exportVCard();
   } else if (format === "google_csv") {
-    exportGoogleCSV();
+    exportPlatformCSV("google");
   } else if (format === "outlook_csv") {
-    exportOutlookCSV();
+    exportPlatformCSV("outlook");
   } else {
     showToast(
       window._t("error.unsupported_format"),
@@ -3721,7 +3700,6 @@ function generateVCardData(items) {
     vcardData += "BEGIN:VCARD\r\n";
     vcardData += "VERSION:3.0\r\n";
     vcardData += `FN:${cleanName}\r\n`;
-    vcardData += `N:${cleanName};;;;\r\n`;
     if (cleanOrg) vcardData += `ORG:${cleanOrg}\r\n`;
     vcardData += `N:${nProp}\r\n`;
 
@@ -4292,13 +4270,13 @@ async function executeCSVImport() {
         }
 
         let parsedDate = new Date(dateStr);
-        // YYYY-MM-DD形式等のタイムゾーン問題を回避する
-        if (dateStr && /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(dateStr.trim())) {
-          const parts = dateStr.trim().split(/[-/]/);
+        // 💡 修正: 時刻付きデータでSafariがクラッシュするのを防ぐため、日付部分のみを抽出
+        const dateMatch = dateStr ? dateStr.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) : null;
+        if (dateMatch) {
           parsedDate = new Date(
-            parseInt(parts[0], 10),
-            parseInt(parts[1], 10) - 1,
-            parseInt(parts[2], 10),
+            parseInt(dateMatch[1], 10),
+            parseInt(dateMatch[2], 10) - 1,
+            parseInt(dateMatch[3], 10),
           );
         }
 
@@ -4389,7 +4367,7 @@ function copyAIPrompt() {
 function copyAsMarkdown() {
   if (!db) return;
   const res = db.exec(
-    "SELECT c.memo, p.memo, c.role, c.contact_info FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
+    "SELECT c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
   );
   if (res.length === 0) {
     showToast(window._t("toast.no_copy_data"), "⚠️", "warning");
@@ -4397,9 +4375,27 @@ function copyAsMarkdown() {
   }
 
   let md = window._t("export.md_title");
-  res[0].values.forEach(([name, org, role, contact]) => {
-    md += `- **${name}** (${org} / ${role || window._t("label.no_role")}) - ${contact || window._t("label.no_contact")}\n`;
+  let count = 0;
+  res[0].values.forEach(([name, org, role, contact, itemTags, orgTags]) => {
+    if (currentActiveTag) {
+      const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
+      const itemMemoTags = ((name || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
+      const orgMemoTags = ((org || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
+      const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
+      const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
+      const allTags = [...new Set([...itemMemoTags, ...orgMemoTags, ...itemFieldTags, ...orgFieldTags])];
+
+      if (!allTags.includes(activeTagRaw)) return;
+    }
+
+    md += `- **${name || window._t("export.unnamed")}** (${org} / ${role || window._t("label.no_role")}) - ${contact || window._t("label.no_contact")}\n`;
+    count++;
   });
+
+  if (count === 0) {
+    showToast(window._t("toast.no_copy_data"), "⚠️", "warning");
+    return;
+  }
 
   navigator.clipboard
     .writeText(md)
@@ -4647,8 +4643,14 @@ function saveContactDetail() {
   );
   if (!recordId || !db) return;
 
-  // 既存のフィールドを全削除して再挿入
-  deleteContactFieldsForRecord(recordId);
+  // 💡 修正: 既存のフィールドを全削除するのではなく、モーダルで扱う項目のみを削除対象にし、未知の拡張データを保護する
+  const targetKeys = [...Object.values(DETAIL_FIELD_MAP), "phone", "email"];
+  const placeholders = targetKeys.map(() => "?").join(",");
+  try {
+    db.run(`DELETE FROM contact_fields WHERE record_id = ? AND field_key IN (${placeholders})`, [recordId, ...targetKeys]);
+  } catch (e) {
+    console.error("Failed to delete specific contact fields:", e);
+  }
 
   // 単一フィールドを保存
   for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
@@ -4728,10 +4730,11 @@ function handleVCFInput(event) {
   event.target.value = "";
 }
 
-// --- Google連絡先CSVエクスポート ---
-function exportGoogleCSV() {
+// --- 汎用プラットフォーム(Google/Outlook)向けCSVエクスポート ---
+function exportPlatformCSV(platform) {
   if (!db) return;
-  const map = PLATFORM_MAPS.google_csv;
+  const isGoogle = platform === "google";
+  const map = isGoogle ? PLATFORM_MAPS.google_csv : PLATFORM_MAPS.outlook_csv;
   const headers = Object.keys(map);
   const rows = [headers];
 
@@ -4817,105 +4820,9 @@ function exportGoogleCSV() {
         .join(","),
     )
     .join("\r\n");
-  downloadCSVFile(csv, "google_contacts");
+  downloadCSVFile(csv, isGoogle ? "google_contacts" : "outlook_contacts");
   showToast(
-    window._t("toast.google_csv", rows.length - 1),
-    '<span class="text-green-400">✔</span>',
-  );
-}
-
-// --- Outlook CSVエクスポート ---
-function exportOutlookCSV() {
-  if (!db) return;
-  const map = PLATFORM_MAPS.outlook_csv;
-  const headers = Object.keys(map);
-  const rows = [headers];
-
-  let stmt;
-  try {
-    stmt = db.prepare(
-      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
-    );
-    while (stmt.step()) {
-      const [id, memo, org, role, contact, itemTags, orgTags] = stmt.get();
-
-      if (currentActiveTag) {
-        const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-        const itemMemoTags = (memo?.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-        const orgMemoTags = (org?.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-        const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-        const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-        const allTags = [...new Set([...itemMemoTags, ...orgMemoTags, ...itemFieldTags, ...orgFieldTags])];
-
-        if (!allTags.includes(activeTagRaw)) continue;
-      }
-
-      const fields = getContactFields(id);
-      const usedFields = new Set();
-      const row = headers.map((h) => {
-        const m = map[h];
-        const match = fields.find(
-          (f) =>
-            f.field_key === m.key &&
-            (m.type ? f.field_type === m.type : true) &&
-            !usedFields.has(f.id),
-        ) || fields.find(
-          (f) =>
-            f.field_key === m.key &&
-            !usedFields.has(f.id)
-        );
-        if (match) {
-          usedFields.add(match.id);
-          return match.field_value;
-        }
-
-        if (m.key === "given_name") return memo || "";
-        if (m.key === "company") return org || "";
-        if (m.key === "job_title") return role || "";
-        if (
-          m.key === "email" &&
-          (m.order === undefined || m.order === 0) &&
-          contact &&
-          contact.includes("@")
-        )
-          return contact;
-        if (
-          m.key === "phone" &&
-          (m.order === undefined || m.order === 0) &&
-          contact &&
-          !contact.includes("@")
-        )
-          return contact;
-
-        return "";
-      });
-      if (row.some((v) => v)) rows.push(row);
-    }
-  } finally {
-    if (stmt) stmt.free();
-  }
-
-  if (rows.length <= 1) {
-    showToast(window._t("toast.no_export_data"), "⚠️", "warning");
-    return;
-  }
-  const csv = rows
-    .map((r) =>
-      r
-        .map((v) => {
-          // 明示的に文字列(String)にキャストし、TypeErrorを防ぐ
-          let cell = String(v || "");
-          if (/^[=+\-@\t\r]/.test(cell)) {
-            cell = "'" + cell;
-          }
-          return `"${cell.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    )
-    .join("\r\n");
-  downloadCSVFile(csv, "outlook_contacts");
-  showToast(
-    window._t("toast.outlook_csv", rows.length - 1),
+    window._t(isGoogle ? "toast.google_csv" : "toast.outlook_csv", rows.length - 1),
     '<span class="text-green-400">✔</span>',
   );
 }
@@ -5045,13 +4952,13 @@ function getBaseCommands() {
       id: "export_google",
       icon: '<svg class="w-5 h-5 text-red-500"><use href="#icon-export"></use></svg>',
       title: window._t("cmd.export_google"),
-      action: () => exportGoogleCSV(),
+      action: () => exportPlatformCSV("google"),
     },
     {
       id: "export_outlook",
       icon: '<svg class="w-5 h-5 text-blue-600"><use href="#icon-export"></use></svg>',
       title: window._t("cmd.export_outlook"),
-      action: () => exportOutlookCSV(),
+      action: () => exportPlatformCSV("outlook"),
     },
     {
       id: "export_vcard",
@@ -5923,7 +5830,8 @@ document.addEventListener("drop", async (e) => {
   closeRoleDictEditor();
 
   // 拡張子に応じて処理を分岐
-  if (file.name.endsWith(".people")) {
+  const extName = file.name.toLowerCase(); // 💡 小文字に正規化して判定
+  if (extName.endsWith(".people")) {
     if (isDirty) {
       const isConfirmed = await window.requestCustomPrompt(
         window._t("confirm.title"),
@@ -5945,10 +5853,10 @@ document.addEventListener("drop", async (e) => {
       };
       await processFileHandle(dummyHandle, true);
     }
-  } else if (file.name.endsWith(".vcf")) {
+  } else if (extName.endsWith(".vcf")) {
     // vCardファイルのドラッグ＆ドロップインポート
     await importVCardFile(file);
-  } else if (file.name.endsWith(".csv")) {
+  } else if (extName.endsWith(".csv")) {
     // 隠された <input type="file"> を利用して、既存のインポートフローに流す
     const csvInput = document.getElementById("csv-input");
     if (csvInput) {
@@ -5975,12 +5883,12 @@ if (shortcutEl) {
 }
 
 const btnSaveTooltip = document.getElementById("btn-save");
-if (btnSaveTooltip) btnSaveTooltip.title = `保存 (${isMac ? "⌘S" : "Ctrl+S"})`;
+if (btnSaveTooltip) btnSaveTooltip.title = `${window._t("btn.save")} (${isMac ? "⌘S" : "Ctrl+S"})`;
 
 const btnOpenTooltip = document.querySelector(
   'button[onclick="loadPeopleFile()"]',
 );
-if (btnOpenTooltip) btnOpenTooltip.title = `開く (${isMac ? "⌘O" : "Ctrl+O"})`;
+if (btnOpenTooltip) btnOpenTooltip.title = `${window._t("btn.open")} (${isMac ? "⌘O" : "Ctrl+O"})`;
 
 // --- 最後の砦：タブ閉じ/バックグラウンド移行時の強制バックアップ ---
 document.addEventListener("visibilitychange", () => {
