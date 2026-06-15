@@ -1,17 +1,22 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v19";
+const CACHE_NAME = "grindpeople-v20260615-1";
 const urlsToCache = [
   "./",
   "./index.html",
   "./main.js",
+  "./i18n.js",
+  "./lang/ja.js",
+  "./lang/en.js",
   "./styles.css",
   "./icon-192.png",
   "./icon-512.png",
+  "./manifest.json",
 ];
 
 const externalUrlsToCache = [
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js",
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm",
+  "https://grindsite.com/tools/footer.js"
 ];
 
 // インストール時にキャッシュを作成
@@ -83,7 +88,7 @@ self.addEventListener("fetch", (event) => {
           (event.request.headers.get("accept") &&
             event.request.headers.get("accept").includes("text/html"))
         ) {
-          const fallbackHtml = `\n            <!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>People - 通知</title><style>body { font-family: sans-serif; background-color: #fafafa; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; } h1 { font-size: 20px; color: #111827; margin-bottom: 16px; font-weight: bold; } p { font-size: 15px; color: #4b5563; line-height: 1.6; margin-bottom: 24px; } .icon { font-size: 48px; margin-bottom: 16px; }</style></head><body><div class="icon">💡</div><h1>ブラウザのキャッシュがクリアされたようです</h1><p>連絡先データはあなたのPCに安全に保存されています。<br><br>アプリを再びオフラインで使うには、一度インターネットに接続した状態でアクセスし直してください。</p></body></html>\n          `;
+          const fallbackHtml = `\n            <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>People - Offline</title><style>body { font-family: sans-serif; background-color: #fafafa; color: #333; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; padding: 20px; } h1 { font-size: 20px; color: #111827; margin-bottom: 16px; font-weight: bold; } p { font-size: 15px; color: #4b5563; line-height: 1.6; margin-bottom: 24px; } .icon { font-size: 48px; margin-bottom: 16px; }</style></head><body><div class="icon">💡</div><h1>You are offline / オフラインです</h1><p>Contact data is safely stored on your device.<br>To use the app offline again, please connect to the internet and reload the page once.<br><br>連絡先データはあなたのPCに安全に保存されています。<br>アプリを再びオフラインで使うには、一度インターネットに接続した状態でアクセスし直してください。</p></body></html>\n          `;
           return new Response(fallbackHtml, {
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });

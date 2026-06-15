@@ -1,11 +1,24 @@
 <!DOCTYPE html>
-<html lang="ja" class="scroll-pt-[220px] scroll-smooth sm:scroll-pt-60">
+<html lang="en" class="scroll-pt-[220px] scroll-smooth sm:scroll-pt-60">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>People - Serverless Edition</title>
+
+  <!-- SEO / OGP Settings -->
+  <meta name="description" content="Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.">
+  <meta property="og:title" content="People - Serverless Edition">
+  <meta property="og:description" content="Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://grindsite.com/tools/people/">
+  <meta property="og:image" content="https://grindsite.com/tools/people/grind-people.jpg">
+  <meta property="og:site_name" content="Grind Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="People - Serverless Edition">
+  <meta name="twitter:description" content="Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.">
+  <meta name="twitter:image" content="https://grindsite.com/tools/people/grind-people.jpg">
 
   <!-- OSのステータスバー色をテーマに合わせる -->
   <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
@@ -34,6 +47,9 @@
 
   <!-- iOS用 ホーム画面アイコン -->
   <link rel="apple-touch-icon" href="icon-192.png">
+
+  <!-- Global Footer Script -->
+  <script src="https://grindsite.com/tools/footer.js" defer></script>
   <script>
     // FOUC (Flash of Unstyled Content) 完全防止
     try {
@@ -44,6 +60,11 @@
       }
     } catch (e) { }
   </script>
+  <style>
+    [data-empty-text]:empty:before {
+      content: attr(data-empty-text);
+    }
+  </style>
 </head>
 
 <body
@@ -164,13 +185,13 @@
       <nav id="toc-container"
         class="top-24 sticky space-y-1 px-4 max-h-[80vh] overflow-y-auto text-slate-500 dark:text-slate-400 text-sm scrollbar-hide">
         <div class="top-0 z-10 sticky bg-slate-50 dark:bg-dark-bg pt-2 pb-4 transition-colors">
-          <div class="mb-2 px-2 font-bold text-[10px] text-slate-600 dark:text-slate-400 uppercase tracking-widest">
+          <div class="mb-2 px-2 font-bold text-[10px] text-slate-600 dark:text-slate-400 uppercase tracking-widest" data-i18n="toc.index">
             Index</div>
           <div class="relative">
             <svg class="top-1/2 left-2.5 absolute w-3.5 h-3.5 text-slate-400 -translate-y-1/2">
               <use href="#icon-search"></use>
             </svg>
-            <input type="text" id="toc-filter" placeholder="目次を絞り込み..."
+            <input type="text" id="toc-filter" data-i18n-placeholder="toc.filter" placeholder="Filter index..."
               class="bg-slate-100 focus:bg-white dark:focus:bg-dark-surface-hover dark:bg-dark-surface py-1.5 pr-3 pl-8 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-full text-slate-700 dark:text-dark-text text-xs transition-colors"
               autocomplete="off">
           </div>
@@ -195,7 +216,7 @@
           <div class="flex items-center">
             <span id="current-filename"
               class="hidden bg-slate-100 dark:bg-dark-surface px-2 py-0.5 border border-slate-200 dark:border-dark-border rounded max-w-[250px] font-mono font-medium text-[11px] text-slate-500 dark:text-slate-400 truncate transition-colors"
-              title="現在開いているファイル">Unsaved.people</span>
+              data-i18n="filename.unsaved" data-i18n-title="title.current_file" title="Currently open file">Unsaved.people</span>
           </div>
         </div>
 
@@ -204,7 +225,7 @@
           <!-- ダークモードトグル -->
           <button id="theme-toggle" onclick="toggleDarkMode()"
             class="bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white dark:text-slate-400 text-sm transition-all cursor-pointer shrink-0"
-            title="ダーク/ライトモードを切り替え">
+            data-i18n-title="title.toggle_theme" title="Toggle Dark/Light Mode">
             <svg id="theme-icon-light" class="hidden dark:block w-4 h-4">
               <use href="#icon-sun"></use>
             </svg>
@@ -214,30 +235,40 @@
           </button>
           <!-- インストールボタン (PWA) -->
           <button id="install-button"
-            class="hidden bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-all shrink-0">
-            ↓ アプリとしてインストール
+            class="hidden bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-all shrink-0" data-i18n="btn.install">
+            ↓ Install App
           </button>
 
+          <!-- 言語選択 -->
+          <label for="lang-select" class="sr-only" data-i18n="aria.select_lang">Select Language</label>
+          <select id="lang-select" onchange="changeLanguage(this.value)"
+            class="bg-white dark:bg-dark-surface shadow-sm px-2 py-2 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none text-slate-700 dark:text-dark-text text-xs transition-colors cursor-pointer"
+            data-i18n-title="title.select_lang" title="Switch Language">
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+
           <!-- サジェスト辞書選択 -->
-          <label for="dict-select" class="sr-only">サジェスト辞書を選択</label>
+          <label for="dict-select" class="sr-only" data-i18n="aria.select_dict">Select Suggestion Dictionary</label>
           <select id="dict-select" onchange="changeRoleDict()"
             class="bg-white dark:bg-dark-surface shadow-sm px-2 py-2 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none text-slate-700 dark:text-dark-text text-xs transition-colors cursor-pointer"
-            title="入力時にサジェストする辞書を選択">
-            <option value="custom">辞書: カスタム</option>
-            <option value="none">サジェスト: オフ</option>
-            <option value="business">辞書: ビジネス</option>
-            <option value="community">辞書: コミュニティ</option>
+            data-i18n-title="title.select_dict" title="Select a dictionary for auto-suggestions">
+            <option value="custom" data-i18n="dict.custom">Dict: Custom</option>
+            <option value="none" data-i18n="dict.none">Suggest: Off</option>
+            <option value="business" data-i18n="dict.business">Dict: Business</option>
+            <option value="community" data-i18n="dict.community">Dict: Community</option>
           </select>
 
           <!-- 暗号化パスワード入力 -->
-          <div class="relative flex items-center">
+          <form onsubmit="event.preventDefault();" class="relative flex items-center">
+            <input type="text" autocomplete="username" class="hidden" value="local-user">
             <label for="file-password" class="sr-only">暗号化パスワード</label>
-            <input type="password" id="file-password" placeholder="暗号化パスワード..." autocomplete="new-password"
+            <input type="password" id="file-password" data-i18n-placeholder="placeholder.password" placeholder="Encryption Password..." autocomplete="new-password"
               data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
-              class="bg-white dark:bg-dark-surface shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-36 text-slate-900 dark:text-dark-text text-sm transition-all placeholder-slate-400"
-              title="パスワードを入力すると保存時にファイルを強力に暗号化します">
+              class="bg-white dark:bg-dark-surface shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-44 text-slate-900 dark:text-dark-text text-sm transition-all placeholder-slate-400"
+              data-i18n-title="title.password_help" title="Entering a password will strongly encrypt the file upon saving.">
             <button type="button" onclick="togglePasswordVisibility()"
-              class="right-2 absolute text-slate-400 hover:text-slate-600 transition-colors" title="パスワードの表示/非表示">
+              class="right-2 absolute text-slate-400 hover:text-slate-600 transition-colors" data-i18n-title="title.toggle_password" title="Toggle password visibility">
               <svg id="icon-eye-open" class="hidden w-4 h-4">
                 <use href="#icon-eye"></use>
               </svg>
@@ -245,18 +276,18 @@
                 <use href="#icon-eye-slash"></use>
               </svg>
             </button>
-          </div>
+          </form>
 
           <button onclick="loadPeopleFile()"
             class="bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-600 hover:text-slate-900 dark:hover:text-white dark:text-slate-400 text-sm transition-colors cursor-pointer shrink-0"
-            title="開く">
+            data-i18n-title="btn.open" title="Open">
             <svg class="w-4 h-4">
               <use href="#icon-folder"></use>
             </svg>
           </button>
           <button id="btn-save" onclick="savePeopleFile()"
             class="relative bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-900 dark:text-dark-text text-sm transition-colors cursor-pointer shrink-0"
-            title="保存">
+            data-i18n-title="btn.save" title="Save">
             <svg class="w-4 h-4">
               <use href="#icon-save"></use>
             </svg>
@@ -270,7 +301,7 @@
           <!-- コマンドパレット呼び出しボタン -->
           <button onclick="toggleCommandPalette()"
             class="flex items-center gap-2 bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-600 hover:text-slate-900 dark:hover:text-white dark:text-slate-400 text-sm transition-colors cursor-pointer shrink-0"
-            title="コマンドパレットを開く">
+            data-i18n-title="title.cmd" title="Open Command Palette">
             <svg class="w-4 h-4">
               <use href="#icon-search"></use>
             </svg>
@@ -293,7 +324,7 @@
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
           </path>
         </svg>
-        <span>SQLiteエンジンを起動中...</span>
+        <span data-i18n="status.loading">Starting SQLite engine...</span>
       </div>
 
       <!-- アプリUI -->
@@ -306,12 +337,12 @@
           <div class="flex justify-between items-end gap-4">
             <div class="min-w-0 text-right">
               <p id="grand-total-label"
-                class="mb-1 font-bold text-[10px] text-slate-400 truncate uppercase tracking-[0.2em]">Total Contacts</p>
+                class="mb-1 font-bold text-[10px] text-slate-400 truncate uppercase tracking-[0.2em]" data-i18n="label.total">Total Contacts</p>
               <p
                 class="flex items-baseline gap-2 font-black tabular-nums text-4xl sm:text-5xl md:text-6xl break-all tracking-tight">
                 <span id="grand-total-num"
                   class="bg-clip-text bg-linear-to-br from-slate-900 dark:from-white to-slate-500 dark:to-slate-400 text-transparent">0</span>
-                <span class="font-sans font-bold text-slate-400 text-xl">人</span>
+                <span class="font-sans font-bold text-slate-400 text-xl" data-i18n="unit.people">people</span>
               </p>
             </div>
 
@@ -321,7 +352,7 @@
               <svg class="w-4 h-4">
                 <use href="#icon-download"></use>
               </svg>
-              表示中を出力
+              <span data-i18n="btn.export_view">Export View</span>
             </button>
           </div>
 
@@ -332,8 +363,8 @@
               class="z-0 relative flex items-center gap-2 -mb-2 pb-2 overflow-x-auto snap-x scrollbar-hide" style="touch-action: auto;">
               <!-- JSで動的にタグ一覧が生成されます -->
               <button onclick="setCategoryFilter(null)" id="filter-btn-all"
-                class="bg-slate-800 hover:bg-slate-700 shadow-sm px-4 py-1.5 border border-slate-800 rounded-full font-bold text-white text-xs transition-colors snap-start shrink-0">
-                すべて表示
+                class="bg-slate-800 hover:bg-slate-700 shadow-sm px-4 py-1.5 border border-slate-800 rounded-full font-bold text-white text-xs transition-colors snap-start shrink-0" data-i18n="filter.all">
+                Show All
               </button>
               <!-- 例: <button class="...">#ビジネス (12)</button> -->
             </div>
@@ -345,11 +376,11 @@
           <div class="left-0 absolute inset-y-0 flex items-center pointer-events-none">
             <span class="pl-2 font-light text-slate-400 group-hover:text-primary text-3xl transition-colors">+</span>
           </div>
-          <label for="new-block-memo" class="sr-only">新しいブロックを作成</label>
-          <input type="text" id="new-block-memo" oninput="setDirty(true)" placeholder="新しいブロックを作成 (例: 株式会社〇〇) ..."
-            onkeydown="if(event.key==='Enter' && event.isComposing) return;"
+          <label for="new-block-memo" class="sr-only" data-i18n="empty.btn_new">Create new block</label>
+          <input type="text" id="new-block-memo" oninput="setDirty(true)" data-i18n-placeholder="placeholder.new_block" placeholder="Create new block (e.g., Company Name) ..."
+            onkeydown="if(event.key==='Enter' && event.isComposing) { event.preventDefault(); return; }"
             class="bg-transparent py-4 pr-4 pl-10 border-slate-200 focus:border-primary dark:border-dark-border border-b-2 outline-none w-full font-extrabold text-slate-900 dark:text-white text-2xl transition-colors placeholder-slate-400">
-          <button type="submit" class="hidden">追加</button>
+          <button type="submit" class="hidden" data-i18n="btn.add">Add</button>
         </form>
 
         <!-- 展開・折りたたみコントロール (データがない時は非表示) -->
@@ -359,14 +390,14 @@
             <svg class="w-3.5 h-3.5">
               <use href="#icon-chevron-down"></use>
             </svg>
-            すべて展開
+            <span data-i18n="btn.expand_all">Expand All</span>
           </button>
           <button onclick="toggleAllBlocks(true)"
             class="flex items-center gap-1 focus:outline-none font-bold text-[11px] text-slate-400 hover:text-slate-700 focus:text-primary transition-colors cursor-pointer">
             <svg class="w-3.5 h-3.5 -rotate-90">
               <use href="#icon-chevron-down"></use>
             </svg>
-            すべて折りたたむ
+            <span data-i18n="btn.collapse_all">Collapse All</span>
           </button>
         </div>
 
@@ -377,12 +408,15 @@
       <!-- 致命的エラー画面 (起動失敗時フェイルセーフ) -->
       <div id="fatal-error-screen" class="hidden z-50 flex-col justify-center items-center px-6 py-20 text-center">
         <div class="drop-shadow-sm mb-4 text-6xl">💥</div>
-        <h2 class="mb-2 font-extrabold text-slate-900 text-2xl">アプリの起動に失敗しました</h2>
-        <p class="mb-6 max-w-md text-slate-600 text-sm leading-relaxed">必須ファイルが読み込めませんでした。<br>通信環境を確認し、ページを再読み込みしてください。
+        <h2 class="mb-2 font-extrabold text-slate-900 text-2xl" data-i18n="error.fatal">Failed to start application</h2>
+        <p class="mb-6 max-w-md text-slate-600 text-sm leading-relaxed" data-i18n="error.fatal_desc">Required files could not be loaded.<br>Please check your network and reload the page.
         </p>
         <button onclick="location.reload()"
-          class="bg-slate-900 hover:bg-slate-800 shadow-md px-6 py-3 rounded-lg font-bold text-white active:scale-95 transition-all">ページを再読み込み</button>
+          class="bg-slate-900 hover:bg-slate-800 shadow-md px-6 py-3 rounded-lg font-bold text-white active:scale-95 transition-all" data-i18n="btn.reload">Reload Page</button>
       </div>
+
+      <!-- Global Footer Placeholder -->
+      <div id="grind-global-footer" class="mt-16 w-full opacity-80 hover:opacity-100 transition-opacity"></div>
 
       <!-- 右側の余白（メインコンテンツを画面中央に維持するためのダミー） -->
       <div class="hidden xl:block w-56 shrink-0"></div>
@@ -396,38 +430,38 @@
         class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-2xl max-h-[90vh] transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-5 border-slate-100 dark:border-dark-border border-b shrink-0">
-          <h3 class="font-bold text-slate-900 dark:text-white text-lg">CSVインポート設定</h3>
+          <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="csv.title">CSV Import Settings</h3>
           <button onclick="closeCSVModal()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="flex-1 space-y-4 px-6 py-6 overflow-y-auto">
-          <p class="text-slate-600 text-sm">CSVの各列を連絡先データに割り当ててください。</p>
+          <p class="text-slate-600 text-sm" data-i18n="csv.desc">Assign CSV columns to contact data fields.</p>
           <div class="gap-4 grid grid-cols-2 sm:grid-cols-4">
             <div>
-              <label for="map-date" class="block mb-1 font-bold text-slate-700 text-xs">日付の列 <span
-                  class="font-normal text-slate-400">(任意)</span></label>
+              <label for="map-date" class="block mb-1 font-bold text-slate-700 text-xs"><span data-i18n="csv.date">Date Column</span> <span
+                  class="font-normal text-slate-400" data-i18n="csv.optional">(Optional)</span></label>
               <select id="map-date" onchange="renderCSVPreview()"
                 class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
             </div>
             <div>
-              <label for="map-role" class="block mb-1 font-bold text-slate-700 text-xs">役割/役職の列 <span
-                  class="font-normal text-slate-400">(任意)</span></label>
+              <label for="map-role" class="block mb-1 font-bold text-slate-700 text-xs"><span data-i18n="csv.role">Role/Title Column</span> <span
+                  class="font-normal text-slate-400" data-i18n="csv.optional">(Optional)</span></label>
               <select id="map-role" onchange="renderCSVPreview()"
                 class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
             </div>
             <div>
-              <label for="map-memo" class="block mb-1 font-bold text-slate-700 text-xs">氏名(メモ)の列</label>
+              <label for="map-memo" class="block mb-1 font-bold text-slate-700 text-xs" data-i18n="csv.memo">Name(Memo) Column</label>
               <select id="map-memo" onchange="renderCSVPreview()"
                 class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
             </div>
             <div>
-              <label for="map-contact" class="block mb-1 font-bold text-slate-700 text-xs">連絡先の列</label>
+              <label for="map-contact" class="block mb-1 font-bold text-slate-700 text-xs" data-i18n="csv.contact">Contact Column</label>
               <select id="map-contact" onchange="renderCSVPreview()"
                 class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
             </div>
           </div>
           <div class="mt-6">
-            <label class="block mb-2 font-bold text-slate-700 text-xs">データプレビュー (最初の数行)</label>
+            <label class="block mb-2 font-bold text-slate-700 text-xs" data-i18n="csv.preview">Data Preview (First few rows)</label>
             <div
               class="border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 overflow-x-auto"
               tabindex="0">
@@ -441,13 +475,13 @@
             </div>
           </div>
           <div class="flex items-center space-x-2 mt-4 text-slate-700 text-sm">
-            <label for="csv-skip-rows">最初の</label>
+            <label for="csv-skip-rows" data-i18n="csv.skip_1">Skip first</label>
             <input type="number" id="csv-skip-rows" value="1" min="0" oninput="renderCSVPreview()"
               class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-16 text-slate-900 dark:text-white text-center">
-            <span>行をスキップする</span>
+            <span data-i18n="csv.skip_2">rows</span>
           </div>
           <div class="flex items-center space-x-2 mt-2 text-slate-700 text-sm">
-            <label for="csv-encoding">文字コード:</label>
+            <label for="csv-encoding" data-i18n="csv.encoding">Encoding:</label>
             <select id="csv-encoding" onchange="updateCSVPreview()"
               class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-auto text-slate-900 dark:text-white text-sm">
               <option value="utf-8">UTF-8</option>
@@ -458,9 +492,9 @@
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t shrink-0">
           <button onclick="closeCSVModal()"
-            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors" data-i18n="btn.cancel">Cancel</button>
           <button onclick="executeCSVImport()"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors">インポート実行</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors" data-i18n="btn.import">Import</button>
         </div>
       </div>
     </div>
@@ -471,33 +505,33 @@
       <div onclick="event.stopPropagation()"
         class="bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-md overflow-hidden transition-all animate-modal-in">
         <div class="flex justify-between items-center px-6 py-5 border-slate-100 dark:border-dark-border border-b">
-          <h3 class="font-bold text-slate-900 dark:text-white text-lg">CSVエクスポート</h3>
+          <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="export.title">CSV Export</h3>
           <button onclick="closeExportModal()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="space-y-4 px-6 py-6">
-          <p class="text-slate-600 text-sm">出力するフォーマットを選択してください。</p>
+          <p class="text-slate-600 text-sm" data-i18n="export.desc">Select output format.</p>
 
           <!-- エクスポート対象期間の表示 -->
           <div id="export-period-info"
             class="bg-blue-50 px-3 py-2.5 border border-blue-200 rounded-md font-medium text-blue-700 text-xs"></div>
 
           <div>
-            <label for="export-format" class="sr-only">出力フォーマット</label>
+            <label for="export-format" class="sr-only" data-i18n="export.format">Output Format</label>
             <select id="export-format"
               class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm">
-              <option value="vcard">Apple/Android用 vCard (.vcf)</option>
-              <option value="google_csv">Google連絡先 CSV</option>
-              <option value="outlook_csv">Outlook CSV</option>
+              <option value="vcard" data-i18n="export.vcard">vCard (.vcf) for Apple/Android</option>
+              <option value="google_csv" data-i18n="export.google">Google Contacts CSV</option>
+              <option value="outlook_csv" data-i18n="export.outlook">Outlook CSV</option>
             </select>
           </div>
         </div>
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t">
           <button onclick="closeExportModal()"
-            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors" data-i18n="btn.cancel">Cancel</button>
           <button onclick="executeExport()"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors">エクスポート</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors" data-i18n="btn.export">Export</button>
         </div>
       </div>
     </div>
@@ -509,18 +543,18 @@
         class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-md max-h-[80vh] overflow-hidden transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-5 border-slate-100 dark:border-dark-border border-b shrink-0">
-          <h3 class="font-bold text-slate-900 dark:text-white text-lg">カスタム辞書の編集</h3>
+          <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="dict_edit.title">Edit Custom Dictionary</h3>
           <button onclick="closeRoleDictEditor()"
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="space-y-4 px-6 py-6 overflow-y-auto">
           <div class="flex justify-between items-end gap-4">
-            <p class="text-slate-600 text-sm">よく使う役割や役職を登録・並び替えできます。<br>目のアイコンをクリックするとサジェストから非表示にできます。</p>
+            <p class="text-slate-600 text-sm" data-i18n="dict_edit.desc">Register and reorder frequently used roles/titles.<br>Click the eye icon to hide from suggestions.</p>
             <div class="flex flex-col gap-2 shrink-0">
               <button type="button" onclick="setAllCustomRolesHidden(false)"
-                class="bg-primary-50 px-2 py-1 rounded-md font-bold text-[11px] text-primary hover:text-primary-hover transition-colors">すべて表示</button>
+                class="bg-primary-50 px-2 py-1 rounded-md font-bold text-[11px] text-primary hover:text-primary-hover transition-colors" data-i18n="btn.show_all">Show All</button>
               <button type="button" onclick="setAllCustomRolesHidden(true)"
-                class="bg-slate-100 px-2 py-1 rounded-md font-bold text-[11px] text-slate-600 hover:text-slate-900 transition-colors">すべて非表示</button>
+                class="bg-slate-100 px-2 py-1 rounded-md font-bold text-[11px] text-slate-600 hover:text-slate-900 transition-colors" data-i18n="btn.hide_all">Hide All</button>
             </div>
           </div>
           <ul id="custom-dict-list" class="space-y-2">
@@ -529,19 +563,19 @@
         </div>
         <div class="px-6 py-4 border-slate-100 border-t shrink-0">
           <form id="add-custom-dict-form" class="flex items-center gap-2">
-            <label for="new-custom-role" class="sr-only">新しい役割/役職を追加</label>
-            <input type="text" id="new-custom-role" placeholder="新しい役割/役職を追加"
+            <label for="new-custom-role" class="sr-only" data-i18n="placeholder.new_role">Add new role/title</label>
+            <input type="text" id="new-custom-role" data-i18n-placeholder="placeholder.new_role" placeholder="Add new role/title"
               class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm">
             <button type="submit"
-              class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm whitespace-nowrap transition-colors shrink-0">追加</button>
+              class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm whitespace-nowrap transition-colors shrink-0" data-i18n="btn.add">Add</button>
           </form>
         </div>
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t shrink-0">
           <button onclick="closeRoleDictEditor()"
-            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors" data-i18n="btn.cancel">Cancel</button>
           <button onclick="saveCustomDictAndClose()"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors">保存して閉じる</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors" data-i18n="btn.save_close">Save & Close</button>
         </div>
       </div>
     </div>
@@ -553,11 +587,11 @@
         class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-lg max-h-[90vh] transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-4 border-slate-100 dark:border-dark-border border-b shrink-0">
-          <h3 class="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-lg">
-            <svg class="w-5 h-5 text-primary">
+          <h3 class="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-lg min-w-0 w-full">
+            <svg class="w-5 h-5 text-primary shrink-0">
               <use href="#icon-pencil"></use>
             </svg>
-            <span id="detail-modal-title">連絡先の詳細</span>
+            <span id="detail-modal-title" data-i18n="detail.title" class="truncate flex-1 min-w-0">Contact Details</span>
           </h3>
           <button onclick="closeContactDetail()"
             class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl leading-none cursor-pointer">&times;</button>
@@ -566,47 +600,47 @@
           <input type="hidden" id="detail-record-id">
           <!-- 基本情報 -->
           <div>
-            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">基本情報
+            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.basic">Basic Info
             </h4>
             <div class="gap-2 grid grid-cols-2">
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">姓</label><input type="text"
-                  id="detail-family-name" placeholder="山田"
+              <div><label for="detail-family-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_name">Last Name</label><input type="text"
+                  id="detail-family-name" data-i18n-placeholder="placeholder.family_name" placeholder="Smith"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">名</label><input type="text"
-                  id="detail-given-name" placeholder="太郎"
+              <div><label for="detail-given-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_name">First Name</label><input type="text"
+                  id="detail-given-name" data-i18n-placeholder="placeholder.given_name" placeholder="John"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">姓 (フリガナ)</label><input
-                  type="text" id="detail-family-yomi" placeholder="ヤマダ"
+              <div><label for="detail-family-yomi" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_yomi">Last Name (Phonetic)</label><input
+                  type="text" id="detail-family-yomi" data-i18n-placeholder="placeholder.family_yomi" placeholder="SMITH"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">名 (フリガナ)</label><input
-                  type="text" id="detail-given-yomi" placeholder="タロウ"
+              <div><label for="detail-given-yomi" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_yomi">First Name (Phonetic)</label><input
+                  type="text" id="detail-given-yomi" data-i18n-placeholder="placeholder.given_yomi" placeholder="JOHN"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
             </div>
-            <div class="mt-2"><label
-                class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">ニックネーム</label><input type="text"
-                id="detail-nickname" placeholder="タケちゃん、Bobなど"
+            <div class="mt-2"><label for="detail-nickname"
+                class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.nickname">Nickname</label><input type="text"
+                id="detail-nickname" data-i18n-placeholder="placeholder.nickname" placeholder="Bobby, etc."
                 class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
             </div>
           </div>
           <!-- 組織 -->
           <div>
-            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">組織</h4>
+            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.org">Organization</h4>
             <div class="space-y-2">
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">会社名</label><input type="text"
-                  id="detail-company" placeholder="株式会社〇〇"
+              <div><label for="detail-company" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.company">Company</label><input type="text"
+                  id="detail-company" data-i18n-placeholder="placeholder.company" placeholder="Acme Inc."
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
               <div class="gap-2 grid grid-cols-2">
-                <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">部署</label><input type="text"
-                    id="detail-department" placeholder="営業部"
+                <div><label for="detail-department" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.department">Department</label><input type="text"
+                    id="detail-department" data-i18n-placeholder="placeholder.department" placeholder="Sales Dept."
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
                 </div>
-                <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">役割/役職</label><input
-                    type="text" id="detail-job-title" placeholder="部長 / 幹事"
+                <div><label for="detail-job-title" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.job_title">Role/Title</label><input
+                    type="text" id="detail-job-title" data-i18n-placeholder="placeholder.job_title_detail" placeholder="Manager / Organizer"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
                 </div>
               </div>
@@ -615,79 +649,79 @@
           <!-- 電話番号 -->
           <div>
             <div class="flex justify-between items-center mb-2">
-              <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">電話番号</h4>
+              <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.phone">Phone Numbers</h4>
               <button type="button" onclick="addDetailPhoneRow()"
-                class="font-bold text-primary text-xs hover:underline cursor-pointer">+ 追加</button>
+                class="font-bold text-primary text-xs hover:underline cursor-pointer" data-i18n="btn.add">Add</button>
             </div>
             <div id="detail-phones" class="space-y-2"></div>
           </div>
           <!-- メール -->
           <div>
             <div class="flex justify-between items-center mb-2">
-              <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">メールアドレス
+              <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.email">Email Addresses
               </h4>
               <button type="button" onclick="addDetailEmailRow()"
-                class="font-bold text-primary text-xs hover:underline cursor-pointer">+ 追加</button>
+                class="font-bold text-primary text-xs hover:underline cursor-pointer" data-i18n="btn.add">Add</button>
             </div>
             <div id="detail-emails" class="space-y-2"></div>
           </div>
           <!-- 住所 -->
           <div>
-            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">住所</h4>
+            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.address">Address</h4>
             <div class="space-y-2">
               <div class="gap-2 grid grid-cols-2">
-                <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">郵便番号</label><input
-                    type="text" id="detail-addr-postal" placeholder="100-0001"
+                <div><label for="detail-addr-postal" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.postal">Postal Code</label><input
+                    type="text" id="detail-addr-postal" data-i18n-placeholder="placeholder.postal" placeholder="12345"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
                 </div>
-                <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">都道府県</label><input
-                    type="text" id="detail-addr-region" placeholder="東京都"
+                <div><label for="detail-addr-region" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.region">State/Province</label><input
+                    type="text" id="detail-addr-region" data-i18n-placeholder="placeholder.region" placeholder="CA"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
                 </div>
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">市区町村・番地</label><input
-                  type="text" id="detail-addr-street" placeholder="千代田区丸の内1-1-1"
+              <div><label for="detail-addr-street" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.street">Street/City</label><input
+                  type="text" id="detail-addr-street" data-i18n-placeholder="placeholder.street" placeholder="123 Main St"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">国</label><input type="text"
-                  id="detail-addr-country" placeholder="日本"
+              <div><label for="detail-addr-country" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.country">Country</label><input type="text"
+                  id="detail-addr-country" data-i18n-placeholder="placeholder.country" placeholder="USA"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
             </div>
           </div>
           <!-- SNS -->
           <div>
-            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">SNS・Web
+            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.sns">SNS / Web
             </h4>
             <div class="space-y-2">
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">LINE</label><input type="text"
-                  id="detail-social-line" placeholder="LINE ID or URL"
+              <div><label for="detail-social-line" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">LINE</label><input type="text"
+                  id="detail-social-line" data-i18n-placeholder="placeholder.line" placeholder="LINE ID or URL"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">X (Twitter)</label><input
-                  type="text" id="detail-social-x" placeholder="@username"
+              <div><label for="detail-social-x" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">X (Twitter)</label><input
+                  type="text" id="detail-social-x" data-i18n-placeholder="placeholder.x_twitter" placeholder="@username"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">Instagram</label><input
-                  type="text" id="detail-social-ig" placeholder="@username"
+              <div><label for="detail-social-ig" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">Instagram</label><input
+                  type="text" id="detail-social-ig" data-i18n-placeholder="placeholder.instagram" placeholder="@username"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">Webサイト</label><input
-                  type="text" id="detail-url" placeholder="https://..."
+              <div><label for="detail-url" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.website">Website</label><input
+                  type="text" id="detail-url" data-i18n-placeholder="placeholder.website" placeholder="https://..."
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
             </div>
           </div>
           <!-- その他 -->
           <div>
-            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">その他</h4>
+            <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.other">Other</h4>
             <div class="space-y-2">
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">誕生日</label><input type="date"
+              <div><label for="detail-birthday" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.birthday">Birthday</label><input type="date"
                   id="detail-birthday"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
               </div>
-              <div><label class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">メモ</label><textarea
-                  id="detail-note" rows="2" placeholder="自由メモ"
+              <div><label for="detail-note" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.note">Notes</label><textarea
+                  id="detail-note" rows="2" data-i18n-placeholder="placeholder.note" placeholder="Free notes"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm resize-y"></textarea>
               </div>
             </div>
@@ -696,9 +730,9 @@
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t shrink-0">
           <button onclick="closeContactDetail()"
-            class="hover:bg-slate-200 px-4 py-2 dark:hover:bg-dark-border rounded-md font-medium text-slate-600 dark:text-slate-300 text-sm transition-colors cursor-pointer">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 dark:hover:bg-dark-border rounded-md font-medium text-slate-600 dark:text-slate-300 text-sm transition-colors cursor-pointer" data-i18n="btn.cancel">Cancel</button>
           <button onclick="saveContactDetail()"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors cursor-pointer">保存</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors cursor-pointer" data-i18n="btn.save">Save</button>
         </div>
       </div>
     </div>
@@ -709,25 +743,26 @@
       <div
         class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-sm overflow-hidden animate-modal-in">
         <div class="px-6 py-5 border-slate-100 dark:border-dark-border border-b">
-          <h3 class="font-bold text-slate-900 dark:text-white text-lg">パスワードの入力</h3>
+          <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="prompt.pw_title">パスワードの入力</h3>
         </div>
         <div class="space-y-4 px-6 py-6">
-          <p id="password-prompt-message" class="text-slate-600 text-sm">ファイルは暗号化されています。解除パスワードを入力してください:</p>
-          <div class="relative flex items-center">
+          <p id="password-prompt-message" class="text-slate-600 text-sm" data-i18n="prompt.pw_desc">ファイルは暗号化されています。解除パスワードを入力してください:</p>
+          <form onsubmit="event.preventDefault();" class="relative flex items-center">
+            <input type="text" autocomplete="username" class="hidden" value="local-user">
             <input type="password" id="password-prompt-input"
               class="bg-slate-50 dark:bg-dark-surface-hover pl-4 pr-10 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-lg"
               autocomplete="new-password" data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off">
-            <button type="button" tabindex="-1" onclick="const p=document.getElementById('password-prompt-input'); p.type=p.type==='password'?'text':'password';" class="absolute right-3 text-slate-400 hover:text-slate-600 transition-colors">
-              <svg class="w-5 h-5"><use href="#icon-eye"></use></svg>
+            <button type="button" tabindex="-1" onclick="const p=document.getElementById('password-prompt-input'); const s=this.querySelector('use'); if(p.type==='password'){p.type='text';s.setAttribute('href','#icon-eye');}else{p.type='password';s.setAttribute('href','#icon-eye-slash');}" class="absolute right-3 text-slate-400 hover:text-slate-600 transition-colors">
+              <svg class="w-5 h-5"><use href="#icon-eye-slash"></use></svg>
             </button>
-          </div>
+          </form>
         </div>
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t">
           <button id="password-prompt-cancel"
-            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors" data-i18n="btn.cancel">Cancel</button>
           <button id="password-prompt-submit"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors">OK</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors" data-i18n="btn.ok">OK</button>
         </div>
       </div>
     </div>
@@ -738,7 +773,7 @@
       <div
         class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-sm overflow-hidden animate-modal-in">
         <div class="px-6 py-5 border-slate-100 dark:border-dark-border border-b">
-          <h3 id="generic-dialog-title" class="font-bold text-slate-900 dark:text-white text-lg">確認</h3>
+          <h3 id="generic-dialog-title" class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="dialog.confirm">Confirm</h3>
         </div>
         <div class="space-y-4 px-6 py-6">
           <p id="generic-dialog-message" class="text-slate-600 text-sm whitespace-pre-wrap leading-relaxed"></p>
@@ -748,9 +783,9 @@
         <div
           class="pb-[calc(1rem+env(safe-area-inset-bottom))] flex justify-end space-x-3 bg-slate-50 dark:bg-dark-surface-hover px-6 pt-4 border-slate-100 dark:border-dark-border border-t">
           <button id="generic-dialog-cancel"
-            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors">キャンセル</button>
+            class="hover:bg-slate-200 px-4 py-2 rounded-md font-medium text-slate-600 text-sm transition-colors" data-i18n="btn.cancel">Cancel</button>
           <button id="generic-dialog-submit"
-            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors">OK</button>
+            class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-colors" data-i18n="btn.ok">OK</button>
         </div>
       </div>
     </div>
@@ -762,9 +797,9 @@
         <svg class="mx-auto mb-4 w-16 h-16 text-primary">
           <use href="#icon-folder"></use>
         </svg>
-        <h2 class="font-extrabold text-white text-3xl tracking-tight">.people / .vcf / .csv ファイルをドロップして開く</h2>
-        <p class="mt-2 text-slate-300">そのまま上書き保存も可能です</p>
-        <p class="mt-6 text-slate-500 text-xs">※画面をクリックするとこの表示を消せます</p>
+        <h2 class="font-extrabold text-white text-3xl tracking-tight" data-i18n="drop.title">.people / .vcf / .csv ファイルをドロップして開く</h2>
+        <p class="mt-2 text-slate-300" data-i18n="drop.desc1">そのまま上書き保存も可能です</p>
+        <p class="mt-6 text-slate-500 text-xs" data-i18n="drop.desc2">※画面をクリックするとこの表示を消せます</p>
       </div>
     </div>
 
@@ -774,11 +809,11 @@
       <div onclick="event.stopPropagation()"
         class="flex flex-col bg-white/80 dark:bg-dark-surface/90 shadow-2xl backdrop-blur-3xl dark:ring-dark-border rounded-xl ring-1 ring-slate-200 w-full max-w-2xl overflow-hidden transition-all animate-modal-in">
         <div class="relative flex items-center gap-3 p-4 border-slate-200/50 dark:border-dark-border/50 border-b">
-          <label for="cmd-input" class="sr-only">コマンド検索</label>
+          <label for="cmd-input" class="sr-only" data-i18n="cmd.search">Command Search</label>
           <span class="text-slate-500 dark:text-slate-400"><svg class="w-5 h-5">
               <use href="#icon-search"></use>
             </svg></span>
-          <input type="text" id="cmd-input" placeholder="コマンド実行、または名前で検索..."
+          <input type="text" id="cmd-input" data-i18n-placeholder="cmd.placeholder" placeholder="Run command, or search by name..."
             class="bg-transparent outline-none w-full font-sans font-medium text-slate-900 dark:text-white text-xl placeholder-slate-400">
           <span
             class="right-4 absolute bg-slate-100 dark:bg-dark-bg px-2 py-1 rounded font-mono text-[10px] text-slate-400">ESC</span>
@@ -793,6 +828,7 @@
     <datalist id="tag-suggestions"></datalist>
 
     <!-- JavaScriptを外部ファイルとして読み込む -->
+    <script src="i18n.js" defer></script>
     <script src="main.js" defer></script>
     <script>
       // PWAのためのService Workerを登録
@@ -813,13 +849,18 @@
               // 強制リロードをやめ、ステータスバーで通知しユーザーのクリックを待つ
               const statusEl = document.getElementById("status");
               if (statusEl) {
-                statusEl.innerHTML = `<span class="text-blue-400">✨</span> アプリが最新版に更新されました。<button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">リロードして適用</button>`;
+                statusEl.innerHTML = `
+                  <span class="text-blue-400">✨</span>
+                  ${window._t('update.ready')}
+                  <button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">${window._t('update.apply')}</button>
+                  <button onclick="this.parentElement.style.opacity='0'; setTimeout(()=>this.parentElement.style.display='none', 500);" class="ml-3 text-slate-400 hover:text-white">&times;</button>
+                `;
                 statusEl.className = "fixed top-4 sm:top-8 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 z-50 flex items-center gap-2 translate-y-0 opacity-100";
                 statusEl.style.pointerEvents = "auto";
 
                 document.getElementById("btn-reload-app").onclick = async () => {
                   if (window.getIsDirty && window.getIsDirty()) {
-                    const isConfirmed = await window.requestCustomPrompt("確認", "未保存の変更があります。リロードすると失われる可能性があります。リロードしますか？", "", "confirm");
+                    const isConfirmed = await window.requestCustomPrompt(window._t('confirm.title'), window._t('confirm.reload_unsaved'), "", "confirm");
                     if (!isConfirmed) return;
                   }
                   location.reload();

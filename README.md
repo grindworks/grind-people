@@ -1,10 +1,51 @@
 # People 📇
 
-**まずは整理、同期は後で。すべての連絡先のためのスマートな中継ハブ。**
+[English](#english) | [日本語](#japanese)
 
-[![Demo](https://img.shields.io/badge/Demo-Play_Now-blue?style=for-the-badge)](https://grindworks.github.io/grind-people/)
+[![Demo](https://img.shields.io/badge/Demo-Play_Now-blue?style=for-the-badge)](https://grindsite.com/tools/people/)
 
 <img src="./grind-people.jpg" width="800" alt="People Hero Image" />
+
+---
+
+<a id="english"></a>
+## 🇬🇧 English
+
+**Organize first, sync later. A smart relay hub for all your contacts.**
+
+**People** is a PWA application for temporarily storing and organizing business card data and community contacts that tend to get cluttered.
+
+It rejects the "data siloing" caused by multi-functional contact management software. Instead, it functions as a **"relay hub (pipe)"** that allows you to cleanly organize data by company or group, export only what you need as **vCard (.vcf) or CSV**, and smoothly pass it to the standard address books of Mac, iPhone, and Windows.
+
+### Philosophy & Features
+
+1. **Ultimate Data Sovereignty (No SaaS, No Subscriptions)**: Your contact data is never sent to third-party servers. Everything is saved as a `.people` file in your local PC environment. All source code is open-source.
+2. **Serverless & Fully Offline (PWA)**: No PHP or database servers are required. Once installed as an app from your browser, it runs instantly with zero latency, even in offline environments.
+3. **Protected by File System Access API & Strong Encryption**: When saving, it applies strong encryption using `AES-256-GCM` via the Web Crypto API. Even if the file is leaked, it can never be decrypted without the password. *(Note: Data cannot be recovered if the password is lost. Chrome/Edge recommended for direct overwrite saving).*
+4. **A "Relay Hub" Connecting to OS Standard Address Books**: Filter accumulated data by tags and bulk-export in vCard (.vcf) or CSV formats (Google/Outlook). Import the output file to integrate clean data into Apple, Google, or Microsoft contacts.
+5. **BYO-AI (Bring Your Own AI) Approach**: To maintain the "fully offline" constraint, it doesn't communicate with external AI APIs. Just copy the built-in prompt and pass it to ChatGPT or Claude to map and format your messy CSV data before importing.
+6. **Block-Editor-Like Input Experience**: Create parent blocks like "Acme Inc." and add members intuitively. Also supports bulk import by dragging and dropping `.vcf` or `.csv` files.
+7. **Ultra-Fast Input (Grind & Polish)**:
+   - **Smart Paste**: Paste email signatures to automatically parse name, contact, and role.
+   - **Command Palette (`Cmd+K`)**: Access all functions entirely with the keyboard.
+   - **Templates**: Save frequently used block structures as templates.
+8. **Flexible Category Filters & Web Share API**: Dynamic grouping by hashtags. Send vCard data directly via the OS share menu on mobile devices.
+9. **Multiplexed Local Auto-Save**: Continuous draft saving via IndexedDB prevents data loss during browser crashes.
+
+### Usage
+1. Access `index.html` in an **HTTPS environment** or on `localhost`.
+2. Install the app as a PWA from the browser's address bar.
+3. Use it completely offline as a native-like application.
+
+### Disclaimer
+This software adopts a "local-first" architecture. Automatic backups to external servers are not performed. The author assumes no responsibility for any data loss. Please back up your `.people` files to external storage regularly.
+
+---
+
+<a id="japanese"></a>
+## 🇯🇵 日本語
+
+**まずは整理、同期は後で。すべての連絡先のためのスマートな中継ハブ。**
 
 **People** は、ごちゃごちゃになりがちな名刺データやコミュニティの連絡先（サークルのメンバーなど）を一時的にストック・整理するためのアプリです。
 
