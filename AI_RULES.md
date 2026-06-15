@@ -34,4 +34,4 @@
 
 - **Deep Contextual Analysis:** Do not act like a naive static analysis tool. Analyze actual data flow in the browser memory before suggesting "optimizations."
 - **Respect Design Philosophy:** Maintain the "Serverless & Subscription-free" nature of the tool. If a feature requires heavy processing, rely on the user's local machine or "BYO-AI (Bring Your Own AI)" via prompt generation, rather than suggesting API integrations that require API keys in the code.
-- **Language:** Output chat explanations in **Japanese**. Code & comments strictly in **English**.
+- **Language:** Output chat explanations in **Japanese**. Code, comments, and **Git commit messages** strictly in **English**.

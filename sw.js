@@ -1,5 +1,5 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260615-3";
+const CACHE_NAME = "grindpeople-v20260615-6";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -75,14 +75,19 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   event.respondWith(
     // クエリパラメータを無視してWASMファイルなどを確実にキャッシュヒットさせる
-    caches.match(event.request, { ignoreSearch: true }).then((response) => {
-      // 1. キャッシュがあればそれを返す
-      if (response) {
-        return response;
-      }
-      // 2. キャッシュがなければネットワークから取得を試みる
-      return fetch(event.request).catch(() => {
-        // 3. オフラインかつキャッシュにもない場合のフォールバック（HTMLへのアクセス時のみ）
+    caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
+      // ネットワークから最新を取得するPromise
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        // 取得成功したらキャッシュを裏でこっそり更新する (CORSリソースの場合は type="basic" 以外も許可するためOK判定のみ)
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // オフラインかつキャッシュにもない場合のフォールバック（HTMLへのアクセス時のみ）
         if (
           event.request.mode === "navigate" ||
           (event.request.headers.get("accept") &&
@@ -94,6 +99,9 @@ self.addEventListener("fetch", (event) => {
           });
         }
       });
+
+      // キャッシュがあれば即座に返し(爆速)、無ければネットワークの完了を待つ (Stale-while-revalidate)
+      return cachedResponse || fetchPromise;
     }),
   );
 });

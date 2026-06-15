@@ -12,7 +12,7 @@ let totalAnimationId = null; // アニメーションの多重起動防止用ID
 let draftTimer = null; // ドラフト自動保存用タイマー
 let statusTimeoutId = null; // ステータスバー通知のタイマーID
 let isSaving = false; // 保存処理の多重実行防止フラグ
-let lastSavedPassword = ""; // パスワードの変更・解除検知用
+let lastSavedPasswordHash = ""; // パスワードのハッシュ値を保持 (平文保持の回避)
 let preDetailActiveElement = null; // 詳細モーダルを開く直前のフォーカス要素
 let originalDetailDataSnapshot = null; // 詳細モーダルの「変更なし」検知用スナップショット
 
@@ -27,6 +27,17 @@ let customRoleDict = []; // カスタム役職辞書の配列
 function lockScroll() {
   document.body.style.overflow = "hidden";
 }
+
+// SHA-256 ハッシュを計算するヘルパー関数
+async function sha256(message) {
+  if (typeof message !== 'string' || message.length === 0) return "";
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
+
 function unlockScroll() {
   document.body.style.overflow = "";
 }
@@ -96,6 +107,28 @@ window
       updateMetaThemeColor(isDark);
     }
   });
+
+// --- 設定ドロップダウンメニュー管理 ---
+window.toggleSettingsMenu = function (event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById("settings-dropdown");
+  if (menu) menu.classList.toggle("hidden");
+};
+
+window.closeSettingsMenu = function () {
+  const menu = document.getElementById("settings-dropdown");
+  if (menu && !menu.classList.contains("hidden")) {
+    menu.classList.add("hidden");
+  }
+};
+
+document.addEventListener("click", (event) => {
+  const menu = document.getElementById("settings-dropdown");
+  const btn = document.getElementById("settings-menu-btn");
+  if (menu && !menu.classList.contains("hidden") && btn && !menu.contains(event.target) && !btn.contains(event.target)) {
+    window.closeSettingsMenu();
+  }
+});
 
 // --- 設定保存用ユーティリティ (SQLiteベース) ---
 function getDbSetting(key, defaultValue = null) {
@@ -1298,7 +1331,7 @@ async function initSQLite() {
               success = true;
               if (password) {
                 document.getElementById("file-password").value = password;
-                lastSavedPassword = password;
+                lastSavedPasswordHash = await sha256(password);
               }
             } catch (err) {
               const msg =
@@ -1796,33 +1829,16 @@ function updateRecord(id, field, newValue, element) {
         if (!hasDetails) {
           // 非同期に逃がすことで、現在のblurイベントやフォーカス移動を安全に完了させ、その後フォーカスを復元する
           setTimeout(async () => {
-            let activeSel = null;
-            const el = document.activeElement;
-            if (
-              el &&
-              el.hasAttribute("data-id") &&
-              el.hasAttribute("data-field")
-            ) {
-              activeSel = `[data-id="${el.getAttribute("data-id")}"][data-field="${el.getAttribute("data-field")}"]`;
-            } else if (el && el.classList.contains("item-role")) {
-              const form = el.closest("form");
-              if (form) activeSel = `#${form.id} .item-role`;
-            }
-
+            const parentIdForFocus = pId;
             await deleteRecord(id, true);
 
-            if (activeSel) {
-              requestAnimationFrame(() => {
-                const target = document.querySelector(activeSel);
-                if (target) {
-                  target.focus();
-                  if (target.hasAttribute("contenteditable")) {
-                    window.getSelection().selectAllChildren(target);
-                    window.getSelection().collapseToEnd();
-                  }
-                }
-              });
-            }
+            // 削除された行ではなく、そのブロックの新規追加欄にフォーカスを移す
+            requestAnimationFrame(() => {
+              const newFocusTarget = document.querySelector(`#block-form-${parentIdForFocus} .item-memo`);
+              if (newFocusTarget) {
+                newFocusTarget.focus();
+              }
+            });
           }, 10);
           return;
         }
@@ -3218,8 +3234,9 @@ async function savePeopleFile(isSaveAs = false) {
     db.run("VACUUM");
     let data = db.export();
     const currentPassword = document.getElementById("file-password").value;
+    const currentPasswordHash = await sha256(currentPassword);
 
-    if (lastSavedPassword !== "" && currentPassword === "") {
+    if (lastSavedPasswordHash !== "" && currentPassword === "") {
       const isConfirmed = await window.requestCustomPrompt(
         window._t("alert.pw_empty_title"),
         window._t("alert.pw_empty_desc"),
@@ -3227,13 +3244,12 @@ async function savePeopleFile(isSaveAs = false) {
         "confirm",
       );
       if (!isConfirmed) {
-        document.getElementById("file-password").value = lastSavedPassword;
         isSaving = false;
         return;
       }
     }
 
-    if (currentPassword !== "" && currentPassword !== lastSavedPassword) {
+    if (currentPassword !== "" && currentPasswordHash !== lastSavedPasswordHash) {
       const confirmPw = await requestPasswordPrompt(
         window._t("prompt.pw_new"),
       );
@@ -3319,7 +3335,7 @@ async function savePeopleFile(isSaveAs = false) {
           '<span class="text-green-400">💾</span>',
         );
         showSaveSuccessFeedback();
-        lastSavedPassword = currentPassword;
+        lastSavedPasswordHash = currentPasswordHash;
         return;
       }
     }
@@ -3359,7 +3375,7 @@ async function savePeopleFile(isSaveAs = false) {
       '<span class="text-green-400">💾</span>',
     );
     showSaveSuccessFeedback();
-    lastSavedPassword = currentPassword;
+    lastSavedPasswordHash = currentPasswordHash;
   } catch (err) {
     console.error("Save failed:", err);
   } finally {
@@ -3429,7 +3445,7 @@ async function processFileHandle(handle, isDummy = false) {
           success = true;
           if (password) {
             document.getElementById("file-password").value = password;
-            lastSavedPassword = password;
+            lastSavedPasswordHash = await sha256(password);
           }
         } catch (err) {
           const msg =
@@ -3446,7 +3462,7 @@ async function processFileHandle(handle, isDummy = false) {
       }
     } else {
       document.getElementById("file-password").value = "";
-      lastSavedPassword = "";
+      lastSavedPasswordHash = "";
     }
 
     let newDb;
@@ -3480,6 +3496,7 @@ async function processFileHandle(handle, isDummy = false) {
     );
 
     renderData();
+    hideStatus();
   } catch (err) {
     console.log("Open cancelled or failed.", err);
     showToast(window._t("error.file_load_fail"), "⚠️", "error");
@@ -3744,7 +3761,16 @@ function generateVCardData(items) {
             vcardData += `URL:${v}\r\n`;
             break;
           case "note":
-            vcardData += `NOTE:${v.replace(/\n/g, "\\n")}\r\n`;
+            // vCard Injection and other control character sanitization
+            const sanitizedV = v
+              .replace(/BEGIN:/gi, '(BEGIN):')
+              .replace(/END:/gi, '(END):');
+            const escapedV = sanitizedV
+              .replace(/\\/g, '\\\\')
+              .replace(/,/g, '\\,')
+              .replace(/;/g, '\\;')
+              .replace(/\r?\n/g, "\\n");
+            vcardData += `NOTE:${escapedV}\r\n`;
             break;
           case "birthday":
             vcardData += `BDAY:${v}\r\n`;
@@ -3753,7 +3779,9 @@ function generateVCardData(items) {
           case "social_facebook":
           case "social_instagram":
           case "social_line":
-            vcardData += `X-SOCIALPROFILE;type=${f.field_key.replace("social_", "")}:${v}\r\n`;
+            let socialType = f.field_key.replace("social_", "");
+            if (socialType === "x") socialType = "twitter"; // Apple Contacts App compatibility
+            vcardData += `X-SOCIALPROFILE;type=${socialType}:${v}\r\n`;
             break;
           default:
             if (f.field_key.startsWith("addr_")) {
@@ -3795,7 +3823,13 @@ function triggerVCardDownload(vcardData, filenameBase) {
   });
   const url = URL.createObjectURL(blob);
   const today = new Date();
-  const dateSuffix = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  const hh = String(today.getHours()).padStart(2, "0");
+  const min = String(today.getMinutes()).padStart(2, "0");
+  const sec = String(today.getSeconds()).padStart(2, "0");
+  const dateSuffix = `${yyyy}${mm}${dd}_${hh}${min}${sec}`;
   const a = document.createElement("a");
   a.href = url;
   a.download = `${filenameBase}_${dateSuffix}.vcf`;
@@ -3894,7 +3928,7 @@ async function exportTagVCard(tag, dataItems) {
   }));
 
   const vcardData = generateVCardData(enrichedItems);
-  const safeTag = tag.replace(/[\\/:*?"<>|#＃]/g, "_"); // OSでファイル名に使えない禁則文字のみを除去
+  const safeTag = tag.replace(/[\\/:*?"<>|#＃\r\n]/g, "_"); // OSでファイル名に使えない禁則文字のみを除去
   triggerVCardDownload(vcardData, `contacts_${safeTag}`);
 }
 
@@ -4833,7 +4867,13 @@ function downloadCSVFile(csvText, filenameBase) {
   const blob = new Blob([bom, csvText], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const today = new Date();
-  const ds = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  const hh = String(today.getHours()).padStart(2, "0");
+  const min = String(today.getMinutes()).padStart(2, "0");
+  const sec = String(today.getSeconds()).padStart(2, "0");
+  const ds = `${yyyy}${mm}${dd}_${hh}${min}${sec}`;
   const a = document.createElement("a");
   a.href = url;
   a.download = `${filenameBase}_${ds}.csv`;
@@ -5231,6 +5271,9 @@ document.addEventListener("keydown", (e) => {
       dragCounter = 0;
       return;
     }
+
+    // 設定メニューを閉じる
+    window.closeSettingsMenu();
 
     // モーダルやパレットが開いていれば閉じる
     if (isCommandPaletteOpen) {
@@ -6028,9 +6071,17 @@ async function shareContact(id) {
 
 // 詳細モーダル内での Enter キー押下を検知し、瞬時に保存して閉じる
 document.getElementById("contact-detail-modal")?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.isComposing && e.target.tagName === "INPUT") {
-    e.preventDefault();
-    saveContactDetail();
+  if (!e.isComposing) {
+    // Cmd (Mac) または Ctrl (Windows) + Enter の場合は、フォーカス位置に関わらず保存
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      saveContactDetail();
+    }
+    // 単体の Enter は、INPUT要素にいる場合のみ保存 (TEXTAREA内の改行を妨害しないため)
+    else if (e.key === "Enter" && e.target.tagName === "INPUT") {
+      e.preventDefault();
+      saveContactDetail();
+    }
   }
 });
 
