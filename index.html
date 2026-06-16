@@ -20,6 +20,9 @@
   <meta name="twitter:description" content="Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.">
   <meta name="twitter:image" content="https://grindsite.com/tools/people/grind-people.jpg">
 
+  <!-- Security: Content Security Policy (CSP) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://grindsite.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://cdnjs.cloudflare.com ws: wss:; img-src 'self' data: https://grindsite.com;">
+
   <!-- OSのステータスバー色をテーマに合わせる -->
   <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
 
@@ -39,8 +42,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- SQLiteをブラウザ(Wasm)で動かすためのライブラリ -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js" crossorigin="anonymous"
-    referrerpolicy="no-referrer"></script>
+  <!-- Security: Subresource Integrity (SRI) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js" integrity="sha512-n7swEtVCvXpQ7KxgpPyp0+DQQEf5vPpmzCRl14x2sp2v5LpCYCjrAx03mkBAbWwGF9eUoIk8YVcDFuJRIeYttg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <!-- Favicon -->
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="manifest" href="manifest.json">
@@ -91,9 +94,21 @@
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
       </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+      </symbol>
       <symbol id="icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </symbol>
+      <symbol id="icon-envelope" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+      </symbol>
+      <symbol id="icon-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+      </symbol>
+      <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
       </symbol>
       <symbol id="icon-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
@@ -164,6 +179,12 @@
           d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z" />
       </symbol>
+      <symbol id="icon-academic-cap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+      </symbol>
+      <symbol id="icon-language" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802" />
+      </symbol>
       <symbol id="icon-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
@@ -192,7 +213,7 @@
               <use href="#icon-search"></use>
             </svg>
             <input type="search" id="toc-filter" data-i18n-placeholder="toc.filter" placeholder="Filter index..."
-              class="bg-slate-100 focus:bg-white dark:focus:bg-dark-surface-hover dark:bg-dark-surface py-1.5 pr-3 pl-8 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-full text-slate-700 dark:text-dark-text text-xs transition-colors"
+              class="bg-slate-100 focus:bg-white dark:focus:bg-dark-surface-hover dark:bg-dark-surface py-1.5 pr-3 pl-8 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-full text-slate-700 dark:text-dark-text text-base sm:text-xs transition-colors"
               autocomplete="off">
           </div>
         </div>
@@ -235,7 +256,7 @@
             <label for="file-password" class="sr-only">暗号化パスワード</label>
             <input type="password" id="file-password" data-i18n-placeholder="placeholder.password" placeholder="Encryption Password..." autocomplete="new-password"
               data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
-              class="bg-white dark:bg-dark-surface shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-44 text-slate-900 dark:text-dark-text text-sm transition-all placeholder-slate-400"
+              class="bg-white dark:bg-dark-surface shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none w-44 text-slate-900 dark:text-dark-text text-base sm:text-sm transition-all placeholder-slate-400"
               data-i18n-title="title.password_help" title="Entering a password will strongly encrypt the file upon saving.">
             <button type="button" onclick="togglePasswordVisibility()"
               class="right-2 absolute text-slate-400 hover:text-slate-600 transition-colors" data-i18n-title="title.toggle_password" title="Toggle password visibility">
@@ -256,9 +277,9 @@
             </svg>
           </button>
           <button id="btn-save" onclick="savePeopleFile()"
-            class="relative bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-900 dark:text-dark-text text-sm transition-colors cursor-pointer shrink-0"
+            class="relative bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-900 dark:text-dark-text text-sm transition-all duration-300 cursor-pointer shrink-0"
             data-i18n-title="btn.save" title="Save">
-            <svg class="w-4 h-4">
+            <svg class="w-4 h-4 transition-all duration-300">
               <use href="#icon-save"></use>
             </svg>
             <!-- 未保存バッジ -->
@@ -288,31 +309,73 @@
                 <use href="#icon-cog"></use>
               </svg>
             </button>
-            <div id="settings-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white dark:bg-dark-surface shadow-xl border border-slate-200 dark:border-dark-border rounded-lg overflow-hidden z-50 origin-top-right transition-all animate-fade-in">
-              <div class="p-2 flex flex-col gap-2">
+            <!-- 設定ドロップダウン -->
+            <div id="settings-dropdown" class="hidden absolute right-0 mt-2 w-60 bg-white/95 dark:bg-dark-surface/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 dark:border-dark-border/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5 dark:ring-white/10">
+              <div class="p-1.5 flex flex-col gap-0.5">
+
                 <!-- ダークモードトグル -->
-                <button id="theme-toggle" onclick="toggleDarkMode(); closeSettingsMenu();"
-                  class="w-full flex items-center gap-3 bg-slate-50 hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-bg px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md text-slate-600 hover:text-slate-900 dark:hover:text-white dark:text-slate-300 text-sm transition-all cursor-pointer text-left"
-                  data-i18n-title="title.toggle_theme" title="Toggle Dark/Light Mode">
-                  <svg id="theme-icon-light" class="hidden dark:block w-4 h-4"><use href="#icon-sun"></use></svg>
-                  <svg id="theme-icon-dark" class="dark:hidden block w-4 h-4"><use href="#icon-moon"></use></svg>
-                  <span class="dark:hidden" data-i18n="menu.dark_mode">Dark Mode</span>
-                  <span class="hidden dark:block" data-i18n="menu.light_mode">Light Mode</span>
+                <button id="theme-toggle" onclick="toggleDarkMode(); closeSettingsMenu();" class="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors cursor-pointer group outline-none">
+                  <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                    <!-- アイコンコンテナ -->
+                    <div class="flex items-center justify-center w-6 h-6 rounded bg-transparent transition-colors shrink-0">
+                      <svg id="theme-icon-light" class="hidden dark:block w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-sun"></use></svg>
+                      <svg id="theme-icon-dark" class="dark:hidden block w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-moon"></use></svg>
+                    </div>
+                    <span class="dark:hidden truncate" data-i18n="menu.dark_mode">Dark Mode</span>
+                    <span class="hidden dark:block truncate" data-i18n="menu.light_mode">Light Mode</span>
+                  </div>
+                  <!-- トグルスイッチUI -->
+                  <div class="relative inline-flex h-4 w-7 items-center rounded-full bg-slate-200 dark:bg-indigo-500 transition-colors shadow-inner shrink-0">
+                    <span class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-0.5 dark:translate-x-3.5 shadow-sm border border-slate-200/50 dark:border-transparent"></span>
+                  </div>
                 </button>
+
+                <div class="h-px bg-slate-100 dark:bg-dark-border my-1 mx-2"></div>
+
                 <!-- 言語選択 -->
-                <label for="lang-select" class="sr-only" data-i18n="aria.select_lang">Select Language</label>
-                <select id="lang-select" onchange="changeLanguage(this.value); closeSettingsMenu();" class="w-full bg-slate-50 hover:bg-slate-100 dark:bg-dark-bg dark:hover:bg-dark-surface-hover px-2 py-2 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none text-slate-700 dark:text-slate-300 text-sm transition-colors cursor-pointer" data-i18n-title="title.select_lang" title="Switch Language">
-                  <option value="ja">日本語</option>
-                  <option value="en">English</option>
-                </select>
+                <label class="relative flex items-center px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover transition-colors cursor-pointer group outline-none">
+                  <div class="flex items-center justify-center w-6 h-6 mr-2.5 rounded bg-transparent transition-colors shrink-0 pointer-events-none">
+                    <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-language"></use></svg>
+                  </div>
+                  <span class="sr-only" data-i18n="aria.select_lang">Select Language</span>
+                  <!-- セレクトボックス (appearance-noneでネイティブ矢印を隠し文字被りを解消) -->
+                  <div class="flex items-center relative flex-1 min-w-0">
+                    <select id="lang-select" onchange="changeLanguage(this.value); closeSettingsMenu();" class="appearance-none bg-transparent pr-5 py-1 w-full text-base sm:text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-primary outline-none cursor-pointer truncate" data-i18n-title="title.select_lang" title="Switch Language">
+                      <option value="ja">日本語</option>
+                      <option value="en">English</option>
+                    </select>
+                    <!-- カスタム矢印アイコン -->
+                    <svg class="w-3.5 h-3.5 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-primary transition-colors"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </label>
+
                 <!-- サジェスト辞書選択 -->
-                <label for="dict-select" class="sr-only" data-i18n="aria.select_dict">Select Suggestion Dictionary</label>
-                <select id="dict-select" onchange="changeRoleDict(); closeSettingsMenu();" class="w-full bg-slate-50 hover:bg-slate-100 dark:bg-dark-bg dark:hover:bg-dark-surface-hover px-2 py-2 border border-slate-200 focus:border-primary dark:border-dark-border rounded-md outline-none text-slate-700 dark:text-slate-300 text-sm transition-colors cursor-pointer" data-i18n-title="title.select_dict" title="Select a dictionary for auto-suggestions">
-                  <option value="custom" data-i18n="dict.custom">Dict: Custom</option>
-                  <option value="none" data-i18n="dict.none">Suggest: Off</option>
-                  <option value="business" data-i18n="dict.business">Dict: Business</option>
-                  <option value="community" data-i18n="dict.community">Dict: Community</option>
-                </select>
+                <label class="relative flex items-center px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover transition-colors cursor-pointer group outline-none">
+                  <div class="flex items-center justify-center w-6 h-6 mr-2.5 rounded bg-transparent transition-colors shrink-0 pointer-events-none">
+                    <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-academic-cap"></use></svg>
+                  </div>
+                  <span class="sr-only" data-i18n="aria.select_dict">Select Dictionary</span>
+                  <div class="flex items-center relative flex-1 min-w-0">
+                    <select id="dict-select" onchange="changeRoleDict(); closeSettingsMenu();" class="appearance-none bg-transparent pr-5 py-1 w-full text-base sm:text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-primary outline-none cursor-pointer truncate" data-i18n-title="title.select_dict" title="Select a dictionary for auto-suggestions">
+                      <option value="custom" data-i18n="dict.custom">Dict: Custom</option>
+                      <option value="none" data-i18n="dict.none">Suggest: Off</option>
+                      <option value="business" data-i18n="dict.business">Dict: Business</option>
+                      <option value="community" data-i18n="dict.community">Dict: Community</option>
+                    </select>
+                    <svg class="w-3.5 h-3.5 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-primary transition-colors"><use href="#icon-chevron-down"></use></svg>
+                  </div>
+                </label>
+
+                <!-- 先ほど追加したカスタム辞書編集ボタン -->
+                <button onclick="showRoleDictEditor(); closeSettingsMenu();" class="w-full flex items-center justify-between px-2.5 py-2 mt-0.5 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm font-medium transition-colors cursor-pointer group outline-none">
+                  <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div class="flex items-center justify-center w-6 h-6 rounded bg-transparent transition-colors shrink-0">
+                      <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-pencil"></use></svg>
+                    </div>
+                    <span class="truncate" data-i18n="dict_edit.title">Edit Custom Dictionary</span>
+                  </div>
+                </button>
+
               </div>
             </div>
           </div>
@@ -437,7 +500,7 @@
     <div id="csv-mapping-modal" onclick="closeCSVModal()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
-        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-2xl max-h-[90vh] transition-all animate-modal-in">
+        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-2xl max-h-[90dvh] transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-5 border-slate-100 dark:border-dark-border border-b shrink-0">
           <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="csv.title">CSV Import Settings</h3>
@@ -451,23 +514,23 @@
               <label for="map-date" class="block mb-1 font-bold text-slate-700 text-xs"><span data-i18n="csv.date">Date Column</span> <span
                   class="font-normal text-slate-400" data-i18n="csv.optional">(Optional)</span></label>
               <select id="map-date" onchange="renderCSVPreview()"
-                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
+                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm"></select>
             </div>
             <div>
               <label for="map-role" class="block mb-1 font-bold text-slate-700 text-xs"><span data-i18n="csv.role">Role/Title Column</span> <span
                   class="font-normal text-slate-400" data-i18n="csv.optional">(Optional)</span></label>
               <select id="map-role" onchange="renderCSVPreview()"
-                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
+                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm"></select>
             </div>
             <div>
               <label for="map-memo" class="block mb-1 font-bold text-slate-700 text-xs" data-i18n="csv.memo">Name(Memo) Column</label>
               <select id="map-memo" onchange="renderCSVPreview()"
-                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
+                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm"></select>
             </div>
             <div>
               <label for="map-contact" class="block mb-1 font-bold text-slate-700 text-xs" data-i18n="csv.contact">Contact Column</label>
               <select id="map-contact" onchange="renderCSVPreview()"
-                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm"></select>
+                class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm"></select>
             </div>
           </div>
           <div class="mt-6">
@@ -487,13 +550,13 @@
           <div class="flex items-center space-x-2 mt-4 text-slate-700 text-sm">
             <label for="csv-skip-rows" data-i18n="csv.skip_1">Skip first</label>
             <input type="number" id="csv-skip-rows" value="1" min="0" oninput="renderCSVPreview()"
-              class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-16 text-slate-900 dark:text-white text-center">
+              class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-16 text-slate-900 dark:text-white text-center text-base sm:text-sm">
             <span data-i18n="csv.skip_2">rows</span>
           </div>
           <div class="flex items-center space-x-2 mt-2 text-slate-700 text-sm">
             <label for="csv-encoding" data-i18n="csv.encoding">Encoding:</label>
             <select id="csv-encoding" onchange="updateCSVPreview()"
-              class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-auto text-slate-900 dark:text-white text-sm">
+              class="bg-slate-50 dark:bg-dark-surface-hover px-2 py-1 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-auto text-slate-900 dark:text-white text-base sm:text-sm">
               <option value="utf-8">UTF-8</option>
               <option value="sjis">Shift_JIS</option>
             </select>
@@ -529,10 +592,11 @@
           <div>
             <label for="export-format" class="sr-only" data-i18n="export.format">Output Format</label>
             <select id="export-format"
-              class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm">
+              class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               <option value="vcard" data-i18n="export.vcard">vCard (.vcf) for Apple/Android</option>
               <option value="google_csv" data-i18n="export.google">Google Contacts CSV</option>
               <option value="outlook_csv" data-i18n="export.outlook">Outlook CSV</option>
+              <option value="qrcoder_csv" data-i18n="export.qrcoder">QR Coder CSV (vCard)</option>
             </select>
           </div>
         </div>
@@ -550,7 +614,7 @@
     <div id="role-dict-editor-modal" onclick="closeRoleDictEditor()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
-        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-md max-h-[80vh] overflow-hidden transition-all animate-modal-in">
+        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-md max-h-[80dvh] overflow-hidden transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-5 border-slate-100 dark:border-dark-border border-b shrink-0">
           <h3 class="font-bold text-slate-900 dark:text-white text-lg" data-i18n="dict_edit.title">Edit Custom Dictionary</h3>
@@ -558,13 +622,19 @@
             class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
         </div>
         <div class="space-y-4 px-6 py-6 overflow-y-auto">
-          <div class="flex justify-between items-end gap-4">
-            <p class="text-slate-600 text-sm" data-i18n="dict_edit.desc">Register and reorder frequently used roles/titles.<br>Click the eye icon to hide from suggestions.</p>
-            <div class="flex flex-col gap-2 shrink-0">
+          <div class="flex flex-col gap-3">
+            <p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed" data-i18n="dict_edit.desc">Register and reorder frequently used roles/titles.<br>Click the eye icon to hide from suggestions.</p>
+            <div class="flex items-center gap-2">
               <button type="button" onclick="setAllCustomRolesHidden(false)"
-                class="bg-primary-50 px-2 py-1 rounded-md font-bold text-[11px] text-primary hover:text-primary-hover transition-colors" data-i18n="btn.show_all">Show All</button>
+                class="bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30 px-2.5 py-1.5 rounded-md font-bold text-[11px] text-primary transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5"><use href="#icon-eye"></use></svg>
+                <span data-i18n="btn.show_all">Show All</span>
+              </button>
               <button type="button" onclick="setAllCustomRolesHidden(true)"
-                class="bg-slate-100 px-2 py-1 rounded-md font-bold text-[11px] text-slate-600 hover:text-slate-900 transition-colors" data-i18n="btn.hide_all">Hide All</button>
+                class="bg-slate-100 hover:bg-slate-200 dark:bg-dark-bg dark:hover:bg-dark-surface-hover px-2.5 py-1.5 rounded-md font-bold text-[11px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-300 transition-colors flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5"><use href="#icon-eye-slash"></use></svg>
+                <span data-i18n="btn.hide_all">Hide All</span>
+              </button>
             </div>
           </div>
           <ul id="custom-dict-list" class="space-y-2">
@@ -575,7 +645,7 @@
           <form id="add-custom-dict-form" class="flex items-center gap-2">
             <label for="new-custom-role" class="sr-only" data-i18n="placeholder.new_role">Add new role/title</label>
             <input type="text" id="new-custom-role" data-i18n-placeholder="placeholder.new_role" placeholder="Add new role/title"
-              class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-sm">
+              class="bg-slate-50 dark:bg-dark-surface-hover px-3 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
             <button type="submit"
               class="bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm whitespace-nowrap transition-colors shrink-0" data-i18n="btn.add">Add</button>
           </form>
@@ -594,7 +664,7 @@
     <div id="contact-detail-modal" onclick="closeContactDetail()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
-        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-lg max-h-[90vh] transition-all animate-modal-in">
+        class="flex flex-col bg-white/95 dark:bg-dark-surface/95 shadow-2xl backdrop-blur-xl rounded-2xl ring-1 ring-slate-900/5 dark:ring-white/10 w-full max-w-lg max-h-[90dvh] transition-all animate-modal-in">
         <div
           class="flex justify-between items-center px-6 py-4 border-slate-100 dark:border-dark-border border-b shrink-0">
           <h3 class="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-lg min-w-0 w-full">
@@ -615,25 +685,25 @@
             <div class="gap-2 grid grid-cols-2">
               <div><label for="detail-family-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_name">Last Name</label><input type="text"
                   id="detail-family-name" data-i18n-placeholder="placeholder.family_name" placeholder="Smith"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-given-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_name">First Name</label><input type="text"
                   id="detail-given-name" data-i18n-placeholder="placeholder.given_name" placeholder="John"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-family-yomi" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_yomi">Last Name (Phonetic)</label><input
                   type="text" id="detail-family-yomi" data-i18n-placeholder="placeholder.family_yomi" placeholder="SMITH"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-given-yomi" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_yomi">First Name (Phonetic)</label><input
                   type="text" id="detail-given-yomi" data-i18n-placeholder="placeholder.given_yomi" placeholder="JOHN"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
             </div>
             <div class="mt-2"><label for="detail-nickname"
                 class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.nickname">Nickname</label><input type="text"
                 id="detail-nickname" data-i18n-placeholder="placeholder.nickname" placeholder="Bobby, etc."
-                class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
             </div>
           </div>
           <!-- 組織 -->
@@ -642,16 +712,16 @@
             <div class="space-y-2">
               <div><label for="detail-company" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.company">Company</label><input type="text"
                   id="detail-company" data-i18n-placeholder="placeholder.company" placeholder="Acme Inc."
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div class="gap-2 grid grid-cols-2">
                 <div><label for="detail-department" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.department">Department</label><input type="text"
                     id="detail-department" data-i18n-placeholder="placeholder.department" placeholder="Sales Dept."
-                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
                 <div><label for="detail-job-title" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.job_title">Role/Title</label><input
                     type="text" id="detail-job-title" data-i18n-placeholder="placeholder.job_title_detail" placeholder="Manager / Organizer"
-                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
               </div>
             </div>
@@ -682,20 +752,20 @@
               <div class="gap-2 grid grid-cols-2">
                 <div><label for="detail-addr-postal" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.postal">Postal Code</label><input
                     type="text" id="detail-addr-postal" data-i18n-placeholder="placeholder.postal" placeholder="12345"
-                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
                 <div><label for="detail-addr-region" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.region">State/Province</label><input
                     type="text" id="detail-addr-region" data-i18n-placeholder="placeholder.region" placeholder="CA"
-                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
               </div>
               <div><label for="detail-addr-street" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.street">Street/City</label><input
                   type="text" id="detail-addr-street" data-i18n-placeholder="placeholder.street" placeholder="123 Main St"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-addr-country" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.country">Country</label><input type="text"
                   id="detail-addr-country" data-i18n-placeholder="placeholder.country" placeholder="USA"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
             </div>
           </div>
@@ -706,19 +776,19 @@
             <div class="space-y-2">
               <div><label for="detail-social-line" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">LINE</label><input type="text"
                   id="detail-social-line" data-i18n-placeholder="placeholder.line" placeholder="LINE ID or URL"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-social-x" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">X (Twitter)</label><input
                   type="text" id="detail-social-x" data-i18n-placeholder="placeholder.x_twitter" placeholder="@username"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-social-ig" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">Instagram</label><input
                   type="text" id="detail-social-ig" data-i18n-placeholder="placeholder.instagram" placeholder="@username"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div><label for="detail-url" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.website">Website</label><input
                   type="text" id="detail-url" data-i18n-placeholder="placeholder.website" placeholder="https://..."
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
             </div>
           </div>
@@ -726,13 +796,16 @@
           <div>
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.other">Other</h4>
             <div class="space-y-2">
-              <div><label for="detail-birthday" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.birthday">Birthday</label><input type="date"
-                  id="detail-birthday"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm">
+              <div><label for="detail-birthday" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.birthday">Birthday</label>
+                <div class="relative flex items-center">
+                  <input type="date" id="detail-birthday"
+                    class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm pr-8">
+                  <button type="button" tabindex="-1" onclick="document.getElementById('detail-birthday').value=''" class="absolute right-2 text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer" title="Clear">&times;</button>
+                </div>
               </div>
               <div><label for="detail-note" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.note">Notes</label><textarea
                   id="detail-note" rows="2" data-i18n-placeholder="placeholder.note" placeholder="Free notes"
-                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-sm resize-y"></textarea>
+                  class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm resize-y"></textarea>
               </div>
             </div>
           </div>
@@ -757,7 +830,7 @@
         </div>
         <div class="space-y-4 px-6 py-6">
           <p id="password-prompt-message" class="text-slate-600 text-sm" data-i18n="prompt.pw_desc">ファイルは暗号化されています。解除パスワードを入力してください:</p>
-          <form onsubmit="event.preventDefault();" class="relative flex items-center">
+          <form onsubmit="event.preventDefault(); document.getElementById('password-prompt-submit').click();" class="relative flex items-center">
             <input type="text" autocomplete="username" class="hidden" value="local-user">
             <input type="password" id="password-prompt-input"
               class="bg-slate-50 dark:bg-dark-surface-hover pl-4 pr-10 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-lg"
@@ -828,7 +901,7 @@
           <span
             class="right-4 absolute bg-slate-100 dark:bg-dark-bg px-2 py-1 rounded font-mono text-[10px] text-slate-400">ESC</span>
         </div>
-        <div id="cmd-list" class="p-2 max-h-[50vh] overflow-y-auto scrollbar-hide"></div>
+        <div id="cmd-list" class="p-2 max-h-[50dvh] overflow-y-auto scrollbar-hide"></div>
       </div>
     </div>
 

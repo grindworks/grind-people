@@ -324,6 +324,12 @@ window.focusAndSelectAll = function (el) {
   }
 };
 
+function extractRecordTags(memoStr, fieldTagsStr) {
+  const memoTags = ((memoStr || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map(t => t.replace(/[#＃]/, ""));
+  const fieldTags = (fieldTagsStr || "").split(/[,、\s]+/).map(t => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
+  return [...new Set([...memoTags, ...fieldTags])];
+}
+
 function escapeHtml(unsafe) {
   return (unsafe ?? "")
     .toString()
@@ -466,8 +472,8 @@ window.requestCustomPrompt = function (
       cleanup();
       resolve(mode === "prompt" ? null : false);
     };
-    input.onkeydown = (e) => {
-      if (e.key === "Enter" && !e.isComposing) {
+    const onKeyDown = (e) => {
+      if (e.key === "Enter" && !e.isComposing && e.target === input) {
         e.preventDefault();
         btnSubmit.click();
       }
@@ -477,6 +483,9 @@ window.requestCustomPrompt = function (
         else btnSubmit.click();
       }
     };
+    input.onkeydown = onKeyDown;
+    btnSubmit.onkeydown = onKeyDown;
+    btnCancel.onkeydown = onKeyDown;
   });
 };
 
@@ -526,9 +535,9 @@ function handleSmartPaste(event) {
   const emailMatch = text.match(
     /([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
   );
-  // 電話番号の正規表現: 090-1234-5678, +81 90 1234 5678, 等に対応
+  // 電話番号の正規表現: 括弧 () と、国際プレフィックス +、さらに内線 (ext) 等の表記にも負けない強力な抽出
   const phoneMatch = text.match(
-    /(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{2,4}[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i
+    /(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i
   );
 
   if (emailMatch || phoneMatch) {
@@ -586,16 +595,94 @@ function handleSmartPaste(event) {
       if (contactInput) contactInput.value = contactInfo;
       if (roleInput && role && !roleInput.value) roleInput.value = role;
 
-      setDirty(true);
-      showToast(window._t("toast.smart_paste"), "✨");
-
-      // ★ 解析完了後、連絡先欄へフォーカスを移し Enter で直ぐに登録できるようにする
+      // ★ 解析完了後、自動でエンターキーを押した状態（一括登録）にする
       setTimeout(() => {
-        if (contactInput) contactInput.focus();
-      }, 10);
+        form.requestSubmit();
+        showToast(window._t("toast.smart_paste"), "✨");
+      }, 50);
     }
   }
 }
+
+// --- 新機能: グローバル・スマートペースト (画面のどこでも発動) ---
+document.addEventListener("paste", async (e) => {
+  const activeEl = document.activeElement;
+  const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  if (!text) return;
+
+  // 1. vCard形式データの検知 (Global: どこでペーストされても優先)
+  if (text.toUpperCase().includes("BEGIN:VCARD") && text.toUpperCase().includes("END:VCARD")) {
+    e.preventDefault();
+    const contacts = parseVCardText(text);
+    if (contacts.length > 0) {
+      const isConfirmed = await window.requestCustomPrompt(
+        window._t("confirm.import_vcard_title"),
+        window._t("confirm.import_vcard_desc", contacts.length),
+        "",
+        "confirm"
+      );
+      if (isConfirmed) executeVCardImport(contacts);
+    } else {
+      showToast(window._t("error.vcard_parse"), "⚠️", "error");
+    }
+    return;
+  }
+
+  // 2. 署名データ (非入力欄でのペースト時)
+  if (!isInputFocused && text.includes("\n")) {
+    const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    const phoneMatch = text.match(/(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i);
+
+    if (emailMatch || phoneMatch) {
+      e.preventDefault();
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      let name = lines[0] || "";
+      let email = emailMatch ? emailMatch[1] : "";
+      let phone = phoneMatch ? phoneMatch[1] : "";
+      if (name.includes(":") || name.includes("：")) name = name.split(/[:：]/)[1].trim();
+
+      let contactInfo = email;
+      if (phone && !email) contactInfo = phone;
+      else if (phone && email) contactInfo = `${email} / ${phone}`;
+
+      let role = "";
+      const roleKeywords = ["部", "長", "課", "班", "代表", "役員", "CEO", "CTO", "Manager", "Director", "Lead", "担当"];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line !== name && !line.includes(email) && !line.includes(phone)) {
+          if (roleKeywords.some((kw) => line.includes(kw))) { role = line; break; }
+        }
+      }
+
+      // 最上部のブロックのIDを取得、なければルートに直接追加
+      let parentId = null;
+      if (db) {
+        let stmt;
+        try {
+          stmt = db.prepare("SELECT id FROM records WHERE parent_id IS NULL ORDER BY sort_order ASC, id DESC LIMIT 1");
+          if (stmt.step()) parentId = stmt.get()[0];
+        } catch(e) {} finally { if (stmt) stmt.free(); }
+      }
+
+      // 未分類の場合は自動的に新しいブロックを作るか、既存のブロックに追加する
+      if (!parentId && db) {
+        const now = new Date();
+        const localTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+        db.run("INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)", ["Pasted Contacts", null, null, localTime]);
+        parentId = db.exec("SELECT last_insert_rowid()")[0]?.values?.[0]?.[0];
+      }
+
+      if (parentId) {
+        insertRecord(parentId, name, contactInfo, null, role, null);
+        renderData(parentId);
+        showToast(window._t("toast.smart_paste"), "✨");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }
+  }
+});
 
 // --- 暗号化ロジック (Web Crypto API) ---
 const MAGIC_BYTES = new TextEncoder().encode("GRINDEN2"); // 最新仕様 (60万回)
@@ -935,15 +1022,6 @@ function setContactField(
   }
 }
 
-function deleteContactFieldsForRecord(recordId) {
-  if (!db) return;
-  try {
-    db.run("DELETE FROM contact_fields WHERE record_id = ?", [recordId]);
-  } catch (e) {
-    console.error("deleteContactFields:", e);
-  }
-}
-
 function clearContactFieldsByKey(recordId, fieldKey) {
   if (!db) return;
   try {
@@ -967,7 +1045,7 @@ function parseVCardText(text) {
 
     // 💡 修正: フリーズ（Catastrophic Backtracking）を防ぐため、先にUnfold（行継続の結合）を行ってからシンプルな正規表現でパージする
     const unfolded = card.replace(/\r?\n[ \t]/g, "");
-    const photoRemovedCard = unfolded.replace(/^PHOTO[^:]*:.*\r?\n?/gmi, "");
+    const photoRemovedCard = unfolded.replace(/^PHOTO[^:\r\n]*:.*\r?\n?/gmi, "");
     const lines = photoRemovedCard.split(/\r?\n/);
     for (const line of lines) {
       if (!line || line.match(/^(BEGIN|END|VERSION):/i)) continue;
@@ -1200,6 +1278,10 @@ async function importVCardFile(file) {
   );
   if (!isConfirmed) return;
 
+  executeVCardImport(contacts);
+}
+
+function executeVCardImport(contacts) {
   db.run("BEGIN TRANSACTION;");
   let checkStmt = null;
   try {
@@ -1706,11 +1788,16 @@ function autoSuggestRole(memoInput) {
         roleInput.classList.add(
           "!bg-purple-100",
           "!text-purple-700",
+          "dark:!bg-purple-900/30",
+          "dark:!text-purple-300",
           "transition-colors",
         );
         setTimeout(
           () =>
-            roleInput.classList.remove("!bg-purple-100", "!text-purple-700"),
+            roleInput.classList.remove(
+              "!bg-purple-100", "!text-purple-700",
+              "dark:!bg-purple-900/30", "dark:!text-purple-300"
+            ),
           1000,
         );
       }
@@ -1975,22 +2062,16 @@ function updateTagUIOnly() {
 
   let tagTotals = Object.create(null);
   tree.forEach((block) => {
-    const blockTagsField = (block.tags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean).map(t => t.startsWith("#") || t.startsWith("＃") ? t : "#" + t);
-    const blockMemoTags = (block.memo || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || [];
-    const combinedBlockTags = [...blockMemoTags, ...blockTagsField];
+    const blockTags = extractRecordTags(block.memo, block.tags).map(t => "#" + t);
 
     if (block.children.length === 0) {
-      const rawTags = [...combinedBlockTags].map((t) => t.replace("＃", "#"));
-      const allTags = [...new Set(rawTags)];
-      allTags.forEach((tag) => {
+      blockTags.forEach((tag) => {
         if (!tagTotals[tag]) tagTotals[tag] = { count: 0, items: [] };
       });
     } else {
       block.children.forEach((item) => {
-        const itemMemoTags = (item.memo || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || [];
-        const itemTagsField = (item.tags || "").split(/[,、\s]+/).map((t) => t.trim()).filter(Boolean).map((t) => (t.startsWith("#") || t.startsWith("＃") ? t : "#" + t));
-        const rawTags = [...itemMemoTags, ...itemTagsField, ...combinedBlockTags].map((t) => t.replace("＃", "#"));
-        const allTags = [...new Set(rawTags)];
+        const itemTags = extractRecordTags(item.memo, item.tags).map(t => "#" + t);
+        const allTags = [...new Set([...blockTags, ...itemTags])];
 
         allTags.forEach((tag) => {
           if (!tagTotals[tag]) tagTotals[tag] = { count: 0, items: [] };
@@ -2199,37 +2280,16 @@ function renderData(focusBlockId = null) {
   // タグ集計用 (事前に全データから抽出しておく)
   let tagTotals = Object.create(null);
   tree.forEach((block) => {
-    const blockTagsField = (block.tags || "")
-      .split(/[,、\s]+/)
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((t) => (t.startsWith("#") || t.startsWith("＃") ? t : "#" + t));
-    const blockMemoTags =
-      (block.memo || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || [];
-    const combinedBlockTags = [...blockMemoTags, ...blockTagsField];
+    const blockTags = extractRecordTags(block.memo, block.tags).map(t => "#" + t);
 
     if (block.children.length === 0) {
-      const rawTags = [...combinedBlockTags].map((t) => t.replace("＃", "#"));
-      const allTags = [...new Set(rawTags)];
-      allTags.forEach((tag) => {
+      blockTags.forEach((tag) => {
         if (!tagTotals[tag]) tagTotals[tag] = { count: 0, items: [] };
       });
     } else {
       block.children.forEach((item) => {
-        const itemMemoTags =
-          (item.memo || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || [];
-        const itemTagsField = (item.tags || "")
-          .split(/[,、\s]+/)
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .map((t) => (t.startsWith("#") || t.startsWith("＃") ? t : "#" + t));
-
-        const rawTags = [
-          ...itemMemoTags,
-          ...itemTagsField,
-          ...combinedBlockTags,
-        ].map((t) => t.replace("＃", "#"));
-        const allTags = [...new Set(rawTags)];
+        const itemTags = extractRecordTags(item.memo, item.tags).map(t => "#" + t);
+        const allTags = [...new Set([...blockTags, ...itemTags])];
 
         allTags.forEach((tag) => {
           if (!tagTotals[tag]) tagTotals[tag] = { count: 0, items: [] };
@@ -2269,17 +2329,11 @@ function renderData(focusBlockId = null) {
     if (!currentActiveTag) {
       filteredTree.push(block);
     } else {
+      const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
+
       // 親ブロック自体がタグを含んでいるか
-      const blockTagsField = (block.tags || "")
-        .split(/[,、\s]+/)
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .map((t) => (t.startsWith("#") || t.startsWith("＃") ? t : "#" + t));
-      const blockHasTag =
-        (block.memo || "").replace("＃", "#").includes(currentActiveTag) ||
-        blockTagsField
-          .map((t) => t.replace("＃", "#"))
-          .includes(currentActiveTag);
+      const blockAllTags = extractRecordTags(block.memo, block.tags);
+      const blockHasTag = blockAllTags.includes(activeTagRaw);
 
       if (blockHasTag) {
         // 親がタグを持っていれば、子要素はすべて表示
@@ -2287,19 +2341,8 @@ function renderData(focusBlockId = null) {
       } else {
         // 子要素の中にタグを持っている人がいれば、その人だけを残す
         const filteredChildren = block.children.filter((item) => {
-          const itemTagsField = (item.tags || "")
-            .split(/[,、\s]+/)
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .map((t) =>
-              t.startsWith("#") || t.startsWith("＃") ? t : "#" + t,
-            );
-          return (
-            (item.memo || "").replace("＃", "#").includes(currentActiveTag) ||
-            itemTagsField
-              .map((t) => t.replace("＃", "#"))
-              .includes(currentActiveTag)
-          );
+          const itemAllTags = extractRecordTags(item.memo, item.tags);
+          return itemAllTags.includes(activeTagRaw);
         });
         if (filteredChildren.length > 0) {
           filteredTree.push({ ...block, children: filteredChildren });
@@ -2601,7 +2644,7 @@ function renderData(focusBlockId = null) {
     );
     if (targetInput) {
       targetInput.focus({ preventScroll: true });
-      targetInput.scrollIntoView({ behavior: "instant", block: "center" });
+      targetInput.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }
 
@@ -2689,18 +2732,18 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const roleStr = item.role || "";
 
     // ★ 役職のデザインをダークモード対応し、ライトモードでもコントラストを高めて見やすくしました
-    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${window._t("placeholder.role")}" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-20 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
+    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${window._t("placeholder.role")}" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-24 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
 
     itemsHtml += `
       <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 dark:border-dark-border/30 group/item hover:bg-slate-50/80 dark:hover:bg-dark-surface-hover transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${avatarHtml}
           ${roleDisp}
-            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.enter_name')}">${escapeHtml(item.memo)}</span>
+            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.enter_name')}">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
           <!-- ★ ここが既存メンバーの連絡先表示欄です -->
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.tel_email_short')}">${escapeHtml(item.contact_info || "")}</span>
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.tel_email_short')}">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
             <!-- ★ タッチターゲットを拡大 (p-2) しました -->
             <button tabindex="-1" onclick="shareContact(${item.id})" aria-label="${window._t("aria.share")}" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="${window._t("title.share_vcard")}">
@@ -2742,23 +2785,23 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         <!-- ★ 専用タグ入力欄 -->
         <div class="flex items-center gap-1.5 mt-1.5 ml-8 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity" onclick="event.stopPropagation()">
           <svg class="w-3.5 h-3.5 text-slate-400 shrink-0"><use href="#icon-tag"></use></svg>
-          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${window._t("placeholder.add_tag")}" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
+          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${window._t("placeholder.add_tag")}" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
         </div>
       </div>
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 dark:text-white text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">${window._t("unit.people")}</span></div>
-        <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-8 gap-1">
+        <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-10 sm:h-8 gap-1">
           <!-- ★ テンプレート保存ボタンをはみ出させず、ここに安全に統合しました -->
-          <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="${window._t("aria.save_tpl")}" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.save_tpl")}">
+          <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="${window._t("aria.save_tpl")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.save_tpl")}">
             <svg class="w-5 h-5"><use href="#icon-squares-plus"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="${window._t("aria.sort")}" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-dark-surface-hover hover:text-slate-600 dark:hover:text-slate-300 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="${window._t("title.sort_oldest")}">
+          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="${window._t("aria.sort")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-dark-surface-hover hover:text-slate-600 dark:hover:text-slate-300 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="${window._t("title.sort_oldest")}">
             <svg class="w-4 h-4"><use href="#icon-sort"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); shareBlock(${block.id})" aria-label="${window._t("aria.share_group")}" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.share_group")}">
+          <button onclick="event.stopPropagation(); shareBlock(${block.id})" aria-label="${window._t("aria.share_group")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.share_group")}">
             <svg class="w-5 h-5"><use href="#icon-share"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="${window._t("aria.delete_block")}" class="w-8 h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="${window._t("title.delete_block")}">
+          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="${window._t("aria.delete_block")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="${window._t("title.delete_block")}">
             <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
           </button>
         </div>
@@ -2778,16 +2821,16 @@ function updateOrCreateBlockElement(block, existingEl = null) {
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <button type="submit" aria-label="${window._t("btn.add_member")}" class="text-primary bg-primary/10 hover:bg-primary/20 rounded-full w-10 h-10 flex items-center justify-center text-2xl leading-none font-light sm:hidden transition-colors outline-none focus:ring-2 focus:ring-primary/50 shrink-0">+</button>
-          <input type="text" placeholder="${window._t("placeholder.role")}" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-20 sm:w-32 shrink-0 text-sm outline-none text-center min-w-0">
+          <input type="text" placeholder="${window._t("placeholder.role")}" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-24 sm:w-32 shrink-0 text-base sm:text-sm outline-none text-center min-w-0">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
           <!-- ★ onfocusのスクロールをPC限定にしてJankを防止 -->
-          <input type="text" placeholder="${window._t("placeholder.add_name")}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-sm font-medium outline-none min-w-0">
+          <input type="text" placeholder="${window._t("placeholder.add_name")}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="${window._t("title.smart_paste_help")}"><use href="#icon-sparkles"></use></svg>
 
           <!-- ★ ここが消えていた新規追加用の連絡先入力欄 (item-contact) です！ -->
-          <input type="text" inputmode="email" placeholder="${window._t("placeholder.tel_email")}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-28 sm:w-48 shrink-0 text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ event.preventDefault(); return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
+          <input type="text" inputmode="email" placeholder="${window._t("placeholder.tel_email")}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ event.preventDefault(); return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">${window._t("btn.add")}</button>
       </form>
@@ -3279,17 +3322,19 @@ async function savePeopleFile(isSaveAs = false) {
         if (iconSvg && !iconSvg.hasAttribute("data-animating")) {
           iconSvg.setAttribute("data-animating", "true");
           const originalUse = `<use href="#icon-save"></use>`;
-          iconSvg.innerHTML = `<use href="#icon-sparkles"></use>`;
-          iconSvg.classList.add("text-green-500", "scale-125");
-          saveBtn.classList.add("ring-2", "ring-green-500/20", "bg-green-50");
+          iconSvg.innerHTML = `<use href="#icon-check"></use>`;
+          iconSvg.classList.add("text-green-500", "scale-125", "drop-shadow-[0_0_8px_rgba(34,197,94,0.8)]");
+          saveBtn.classList.add("ring-2", "ring-green-500/40", "bg-green-50", "dark:bg-green-900/20", "shadow-[0_0_15px_rgba(34,197,94,0.3)]");
 
           setTimeout(() => {
             iconSvg.innerHTML = originalUse;
-            iconSvg.classList.remove("text-green-500", "scale-125");
+            iconSvg.classList.remove("text-green-500", "scale-125", "drop-shadow-[0_0_8px_rgba(34,197,94,0.8)]");
             saveBtn.classList.remove(
               "ring-2",
-              "ring-green-500/20",
+              "ring-green-500/40",
               "bg-green-50",
+              "dark:bg-green-900/20",
+              "shadow-[0_0_15px_rgba(34,197,94,0.3)]"
             );
             iconSvg.removeAttribute("data-animating");
           }, 1500);
@@ -3569,7 +3614,7 @@ function showExportModal() {
   const infoEl = document.getElementById("export-period-info");
   if (infoEl) {
     let periodText = currentActiveTag
-      ? window._t("export.period_tag", currentActiveTag)
+      ? window._t("export.period_tag", escapeHtml(currentActiveTag))
       : window._t("export.period_all");
     infoEl.innerHTML = window._t("export.period_info", periodText);
   }
@@ -3613,6 +3658,8 @@ function exportCSV(format = "vcard") {
     exportPlatformCSV("google");
   } else if (format === "outlook_csv") {
     exportPlatformCSV("outlook");
+  } else if (format === "qrcoder_csv") {
+    exportQRCoderCSV();
   } else {
     showToast(
       window._t("error.unsupported_format"),
@@ -3656,27 +3703,10 @@ function generateVCardData(items) {
     }
 
     // 両方のフィールドのタグをマージして出力
-    const itemMemoTags = (
-      rawName.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
-    ).map((t) => t.replace(/[#＃]/, ""));
-    const orgMemoTags = (
-      org.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
-    ).map((t) => t.replace(/[#＃]/, ""));
-    const itemFieldTags = (item.item_tags || "")
-      .split(/[,、\s]+/)
-      .map((t) => t.trim().replace(/^[#＃]/, ""))
-      .filter(Boolean);
-    const orgFieldTags = (item.org_tags || "")
-      .split(/[,、\s]+/)
-      .map((t) => t.trim().replace(/^[#＃]/, ""))
-      .filter(Boolean);
-
     const allTags = [
       ...new Set([
-        ...itemMemoTags,
-        ...orgMemoTags,
-        ...itemFieldTags,
-        ...orgFieldTags,
+        ...extractRecordTags(rawName, item.item_tags),
+        ...extractRecordTags(org, item.org_tags)
       ]),
     ];
 
@@ -3875,26 +3905,10 @@ function exportVCard() {
   if (currentActiveTag) {
     const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
     filteredItems = items.filter((item) => {
-      const itemMemoTags = (
-        (item.name || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
-      ).map((t) => t.replace(/[#＃]/, ""));
-      const orgMemoTags = (
-        (item.org || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []
-      ).map((t) => t.replace(/[#＃]/, ""));
-      const itemFieldTags = (item.item_tags || "")
-        .split(/[,、\s]+/)
-        .map((t) => t.trim().replace(/^[#＃]/, ""))
-        .filter(Boolean);
-      const orgFieldTags = (item.org_tags || "")
-        .split(/[,、\s]+/)
-        .map((t) => t.trim().replace(/^[#＃]/, ""))
-        .filter(Boolean);
       const allTags = [
         ...new Set([
-          ...itemMemoTags,
-          ...orgMemoTags,
-          ...itemFieldTags,
-          ...orgFieldTags,
+          ...extractRecordTags(item.name, item.item_tags),
+          ...extractRecordTags(item.org, item.org_tags)
         ]),
       ];
       return allTags.includes(activeTagRaw);
@@ -3930,6 +3944,116 @@ async function exportTagVCard(tag, dataItems) {
   const vcardData = generateVCardData(enrichedItems);
   const safeTag = tag.replace(/[\\/:*?"<>|#＃\r\n]/g, "_"); // OSでファイル名に使えない禁則文字のみを除去
   triggerVCardDownload(vcardData, `contacts_${safeTag}`);
+}
+
+// --- QR Coder用 (vCard形式) CSVエクスポート ---
+function exportQRCoderCSV() {
+  if (!db) return;
+  // QR CoderのvCardタイプで必須・任意のヘッダー
+  const headers = ["Name", "Memo", "Tags", "Last Name", "First Name", "Company", "Phone", "Email", "Address"];
+  const rows = [headers];
+
+  let stmt;
+  try {
+    stmt = db.prepare(
+      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
+    );
+    while (stmt.step()) {
+      const [id, memo, org, role, contact, itemTags, orgTags] = stmt.get();
+
+      if (currentActiveTag) {
+        const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
+        const allTags = [
+          ...new Set([
+            ...extractRecordTags(memo, itemTags),
+            ...extractRecordTags(org, orgTags)
+          ]),
+        ];
+
+        if (!allTags.includes(activeTagRaw)) continue;
+      }
+
+      const fields = getContactFields(id);
+
+      let lastName = "", firstName = "", company = org || "", phone = "", email = "", address = "";
+
+      const getField = (key) => {
+        const f = fields.find(f => f.field_key === key);
+        return f ? f.field_value : "";
+      };
+
+      lastName = getField("family_name");
+      firstName = getField("given_name");
+
+      // 名前が分割されていない場合のフォールバック
+      if (!lastName && !firstName && memo) {
+        // タグを除去したクリーンな名前
+        const cleanName = memo.replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "").trim();
+        const parts = cleanName.split(/[\s　]+/);
+        if (parts.length > 1) {
+          lastName = parts[0];
+          firstName = parts.slice(1).join(" ");
+        } else {
+          lastName = cleanName;
+        }
+      }
+
+      if (getField("company")) company = getField("company");
+
+      email = getField("email") || (contact && contact.includes("@") ? contact : "");
+      phone = getField("phone") || (contact && !contact.includes("@") ? contact : "");
+
+      const postal = getField("addr_postal");
+      const region = getField("addr_region");
+      const street = getField("addr_street");
+      const country = getField("addr_country");
+      address = [postal, region, street, country].filter(Boolean).join(" ");
+
+      const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
+      const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
+      const finalTags = [...new Set([...itemFieldTags, ...orgFieldTags])].join(", ");
+
+      const row = [
+        memo ? memo.replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "").trim() : "", // Name
+        role || "", // Memo
+        finalTags, // Tags
+        lastName,
+        firstName,
+        company,
+        phone,
+        email,
+        address
+      ];
+      rows.push(row);
+    }
+  } finally {
+    if (stmt) stmt.free();
+  }
+
+  if (rows.length <= 1) {
+    showToast(window._t("toast.no_export_data"), "⚠️", "warning");
+    return;
+  }
+
+  const csv = rows
+    .map((r) =>
+      r
+        .map((v) => {
+          let cell = String(v || "");
+          if (/^[=+\-@\t\r]/.test(cell)) {
+            cell = "'" + cell;
+          }
+          return `"${cell.replace(/"/g, '""')}"`;
+        })
+        .join(","),
+    )
+    .join("\r\n");
+
+  downloadCSVFile(csv, "qrcoder_vcard");
+  showToast(
+    window._t("toast.qrcoder_csv", rows.length - 1),
+    '<span class="text-green-400">✔</span>',
+  );
 }
 
 // 7. CSVインポート
@@ -4057,6 +4181,19 @@ function updateCSVPreview() {
     ) {
       pendingCSVData.pop();
     }
+
+    // QR Coderの履歴CSVかどうかを自動検知
+    if (pendingCSVData.length > 0) {
+      const headers = pendingCSVData[0].map(h => String(h || "").trim());
+      const isQrHistory = headers.includes("QR ID") && headers.includes("Data Content");
+      if (isQrHistory) {
+        const dataRows = pendingCSVData.slice(1);
+        closeCSVModal(); // 先にデータを退避してからマッピング用のモーダルを閉じる
+        executeQRCoderHistoryImport(dataRows, headers);
+        return;
+      }
+    }
+
   } catch (e) {
     pendingCSVData = []; // エラー時はデータをクリア
     const unselectedHtml = `<option value="-1">${window._t("label.unselected")}</option>`;
@@ -4383,6 +4520,97 @@ async function executeCSVImport() {
   renderData();
 }
 
+// --- QR Coder履歴CSVのマージ処理 ---
+async function executeQRCoderHistoryImport(data, headers) {
+  const isConfirmed = await window.requestCustomPrompt(
+    window._t("confirm.title"),
+    window._t("confirm.qr_history_import", data.length),
+    "",
+    "confirm"
+  );
+  if (!isConfirmed) {
+    pendingCSVData = [];
+    pendingCSVBuffer = null;
+    return;
+  }
+
+  const idxName = headers.indexOf("Name");
+  const idxType = headers.indexOf("Type");
+  const idxDate = headers.indexOf("Created At");
+  const idxContent = headers.indexOf("Data Content");
+  const idxTags = headers.indexOf("Tags");
+
+  if (idxName === -1) {
+    showToast(window._t("error.import_fail"), "⚠️", "error");
+    return;
+  }
+
+  let matchCount = 0;
+  db.run("BEGIN TRANSACTION;");
+  let findStmt = null;
+
+  try {
+    // 名前が完全一致するものを探す（空白やハッシュタグを除去したベース名で比較するのが安全ですが、今回は高速化のためmemoと直接比較）
+    findStmt = db.prepare("SELECT id, tags FROM records WHERE parent_id IS NOT NULL AND memo = ?");
+
+    for (const row of data) {
+      const name = row[idxName];
+      if (!name) continue;
+
+      findStmt.bind([name]);
+      const matches = [];
+      while (findStmt.step()) {
+        matches.push(findStmt.get());
+      }
+      findStmt.reset();
+
+      if (matches.length > 0) {
+        const date = row[idxDate] ? new Date(row[idxDate]).toLocaleDateString() : '';
+        const type = row[idxType] || 'QR';
+        const content = row[idxContent] || '';
+        const historyText = `[QR Coder: ${type}] ${date} - ${content}`;
+        const additionalTags = row[idxTags] ? row[idxTags].split(',').map(t => t.trim()).filter(Boolean) : [];
+
+        for (const match of matches) {
+          const recId = match[0];
+          const existingTags = match[1] ? match[1].split(/[,、\s]+/).map(t => t.trim()).filter(Boolean) : [];
+
+          // 履歴をメモに追記
+          const fields = getContactFields(recId);
+          const existingNote = fields.find(f => f.field_key === "note");
+          let newNoteText = historyText;
+
+          if (existingNote && existingNote.field_value) {
+            newNoteText = existingNote.field_value + "\n\n" + historyText;
+          }
+
+          db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = 'note'", [recId]);
+          setContactField(recId, "note", newNoteText, "other", 0);
+
+          // タグをマージ（言語に応じてタグ名を変える）
+          const exportTag = window.I18n.getLang() === 'ja' ? "#QR発行済" : "#QR-Exported";
+          const mergedTags = [...new Set([...existingTags, ...additionalTags, exportTag])];
+          db.run("UPDATE records SET tags = ? WHERE id = ?", [mergedTags.join(', '), recId]);
+
+          matchCount++;
+        }
+      }
+    }
+    db.run("COMMIT;");
+    setDirty(true);
+    showToast(window._t("toast.qr_history_merged", matchCount), '✨');
+    renderData();
+  } catch (err) {
+    db.run("ROLLBACK;");
+    console.error(err);
+    showToast(window._t("error.import_fail"), "⚠️", "error");
+  } finally {
+    if (findStmt) findStmt.free();
+    pendingCSVData = [];
+    pendingCSVBuffer = null;
+  }
+}
+
 // 8. AI連携用のプロンプトコピー機能 (BYO-AIアプローチ)
 function copyAIPrompt() {
   const promptText = window._t("prompt.ai_format");
@@ -4413,11 +4641,12 @@ function copyAsMarkdown() {
   res[0].values.forEach(([name, org, role, contact, itemTags, orgTags]) => {
     if (currentActiveTag) {
       const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-      const itemMemoTags = ((name || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-      const orgMemoTags = ((org || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-      const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-      const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-      const allTags = [...new Set([...itemMemoTags, ...orgMemoTags, ...itemFieldTags, ...orgFieldTags])];
+      const allTags = [
+        ...new Set([
+          ...extractRecordTags(name, itemTags),
+          ...extractRecordTags(org, orgTags)
+        ]),
+      ];
 
       if (!allTags.includes(activeTagRaw)) return;
     }
@@ -4551,11 +4780,16 @@ function showContactDetail(recordId) {
 
   // 連絡先の同期 (詳細にデータが1つも無い場合、メインのデータを自動分類してセット)
   if (phones.length === 0 && emails.length === 0 && mainContactInfo) {
-    if (mainContactInfo.includes("@")) {
-      emails.push({ field_value: mainContactInfo, field_type: "work" });
-    } else {
-      phones.push({ field_value: mainContactInfo, field_type: "mobile" });
-    }
+    // Smart Paste の "Email / Phone" 形式を分離して取り込む
+    const parts = mainContactInfo.split(/\s+\/\s+/);
+    parts.forEach(part => {
+      const cleanPart = part.trim();
+      if (cleanPart.includes("@")) {
+        emails.push({ field_value: cleanPart, field_type: "work" });
+      } else if (cleanPart) {
+        phones.push({ field_value: cleanPart, field_type: "mobile" });
+      }
+    });
   }
 
   if (phones.length === 0)
@@ -4620,13 +4854,13 @@ function addDetailPhoneRow(value = "", type = "mobile", autoFocus = true) {
   const row = document.createElement("div");
   row.className = "flex items-center gap-2";
   row.innerHTML = `
-    <select class="detail-phone-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-xs outline-none w-20 shrink-0">
+    <select class="detail-phone-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-24 sm:w-20 shrink-0">
       <option value="mobile" ${type === "mobile" ? "selected" : ""}>${window._t("opt.mobile")}</option>
       <option value="work" ${type === "work" ? "selected" : ""}>${window._t("opt.work")}</option>
       <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.home")}</option>
       <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="tel" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+    <input type="tel" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -4645,12 +4879,12 @@ function addDetailEmailRow(value = "", type = "work", autoFocus = true) {
   const row = document.createElement("div");
   row.className = "flex items-center gap-2";
   row.innerHTML = `
-    <select class="detail-email-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-xs outline-none w-20 shrink-0">
+    <select class="detail-email-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-24 sm:w-20 shrink-0">
       <option value="work" ${type === "work" ? "selected" : ""}>${window._t("opt.work2")}</option>
       <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.personal")}</option>
       <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="email" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-sm outline-none focus:border-primary">
+    <input type="email" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -4782,11 +5016,12 @@ function exportPlatformCSV(platform) {
 
       if (currentActiveTag) {
         const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-        const itemMemoTags = (memo?.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-        const orgMemoTags = (org?.match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map((t) => t.replace(/[#＃]/, ""));
-        const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-        const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map((t) => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
-        const allTags = [...new Set([...itemMemoTags, ...orgMemoTags, ...itemFieldTags, ...orgFieldTags])];
+        const allTags = [
+          ...new Set([
+            ...extractRecordTags(memo, itemTags),
+            ...extractRecordTags(org, orgTags)
+          ]),
+        ];
 
         if (!allTags.includes(activeTagRaw)) continue;
       }
@@ -5001,10 +5236,22 @@ function getBaseCommands() {
       action: () => exportPlatformCSV("outlook"),
     },
     {
+      id: "export_qrcoder",
+      icon: '<svg class="w-5 h-5 text-emerald-500"><use href="#icon-export"></use></svg>',
+      title: window._t("cmd.export_qrcoder"),
+      action: () => exportCSV("qrcoder_csv"),
+    },
+    {
       id: "export_vcard",
       icon: '<svg class="w-5 h-5 text-purple-500"><use href="#icon-export"></use></svg>',
       title: window._t("cmd.export_vcard"),
       action: () => exportVCard(),
+    },
+    {
+      id: "edit_dict",
+      icon: '<svg class="w-5 h-5 text-amber-500"><use href="#icon-pencil"></use></svg>',
+      title: window._t("dict_edit.title"),
+      action: () => showRoleDictEditor(),
     },
   ];
 }
@@ -5028,11 +5275,7 @@ function toggleCommandPalette() {
     selectedCommandIndex = 0;
     renderCommandList();
 
-    if (window.innerWidth > 768) {
-      setTimeout(() => input.focus(), 50);
-    } else {
-      input.blur(); // スマホの場合はソフトウェアキーボードを出さず、リスト表示を優先
-    }
+    setTimeout(() => input.focus(), 50);
   } else {
     palette.classList.add("hidden");
     palette.classList.remove("flex");
@@ -5097,66 +5340,64 @@ function getFilteredCommands(query) {
     .filter(Boolean);
 
   const dynamicCommands = getDynamicCommands();
-  let filtered = dynamicCommands.filter((c) => {
+  let matchedCommands = dynamicCommands.filter((c) => {
     const targetText = normalize(c.title) + " " + normalize(c.id);
     return terms.every((term) => targetText.includes(term));
   });
+
+  const templates = [];
+  const commands = [];
+  matchedCommands.forEach(c => {
+    if (c.id.startsWith("tpl_")) templates.push(c);
+    else commands.push(c);
+  });
+
+  const contacts = [];
 
   if (terms.length > 0 && db) {
     let stmt;
     try {
       // WHERE条件を外し、親を持つレコードを全取得
       stmt = db.prepare(
-        `SELECT c.id, c.memo, p.memo, p.id, c.contact_info FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL`,
+        `SELECT c.id, c.memo, p.memo, p.id, c.contact_info, c.role, c.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL`,
       );
       while (stmt.step()) {
-        const [id, name, org, parentId, contact] = stmt.get();
-        const targetText =
-          normalize(name) + " " + normalize(contact) + " " + normalize(org);
+        const [id, name, org, parentId, contact, role, tags] = stmt.get();
+        const targetText = normalize((name || "") + " " + (contact || "") + " " + (org || "") + " " + (role || "") + " " + (tags || ""));
 
         // JS側で完全な正規化テキストに対してマッチング
         if (terms.every((term) => targetText.includes(term))) {
-          filtered.unshift({
-            id: `search_${id}`,
-            icon: '<svg class="w-5 h-5 text-primary"><use href="#icon-search"></use></svg>',
-            title: `<span class="text-primary font-bold">${escapeHtml(name)}</span> <span class="text-xs text-slate-400 dark:text-slate-500 ml-2">(${escapeHtml(org)})</span>`,
+          const safeName = name || window._t("label.unnamed");
+
+          // 連絡先の種類に応じてバッジの見た目だけを変える（リストは1行に集約）
+          let badgeText = window._t("aria.detail") || "Detail";
+          let badgeClass = "bg-primary/10 text-primary border-primary/20";
+          let iconHtml = '<svg class="w-5 h-5 text-primary"><use href="#icon-user"></use></svg>';
+
+          if (contact && contact.includes('@')) {
+            badgeText = "Email";
+            badgeClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
+            iconHtml = '<svg class="w-5 h-5 text-emerald-500"><use href="#icon-envelope"></use></svg>';
+          } else if (contact && contact.trim() !== "") {
+            badgeText = "Call";
+            badgeClass = "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+            iconHtml = '<svg class="w-5 h-5 text-green-500"><use href="#icon-phone"></use></svg>';
+          }
+
+          // 連絡先アクション（1人につき1行のみ追加）
+          contacts.push({
+            id: `detail_${id}`,
+            icon: iconHtml,
+            title: `<span class="text-slate-700 dark:text-slate-200 font-bold">${escapeHtml(safeName)}</span> <span class="text-xs text-slate-400 dark:text-slate-500 ml-2">(${escapeHtml(org)})</span>`,
+            badge: badgeText,
+            badgeClass: badgeClass,
             keepOpen: false,
             action: () => {
-              let delay = 0;
-
-              // 対象がDOMにいない可能性を防ぐため、フィルター中なら解除して再描画する
-              if (currentActiveTag !== null) {
-                currentActiveTag = null;
-                renderData();
-                delay = 150; // 再描画を待つ
-              }
-
-              // 親ブロックが折りたたまれていれば展開する
-              if (collapsedBlocks.has(parentId)) {
-                toggleBlock(parentId);
-                delay = 310;
-                delay = Math.max(delay, 310);
-              }
-
-              setTimeout(() => {
-                // 対象の名前要素にジャンプしてフォーカスを当てる
-                const el = document.querySelector(
-                  `span[data-id="${id}"][data-field="memo"]`,
-                );
-                if (el) {
-                  el.scrollIntoView({ behavior: "smooth", block: "center" });
-                  el.focus();
-                  const range = document.createRange();
-                  const sel = window.getSelection();
-                  range.selectNodeContents(el);
-                  range.collapse(false);
-                  sel.removeAllRanges();
-                  sel.addRange(range);
-                }
-              }, delay);
+              showContactDetail(id); // 常に詳細を開く
             },
           });
-          if (filtered.length > 20) break; // 多すぎる場合は20件で打ち切り
+
+          if (contacts.length > 30) break; // 多すぎる場合は30件で打ち切り
         }
       }
     } catch (e) {
@@ -5165,7 +5406,12 @@ function getFilteredCommands(query) {
       if (stmt) stmt.free();
     }
   }
-  return filtered;
+
+  contacts.forEach(c => c.category = "contacts");
+  templates.forEach(c => c.category = "templates");
+  commands.forEach(c => c.category = "commands");
+
+  return [...contacts, ...templates, ...commands];
 }
 
 function renderCommandList(query = "") {
@@ -5174,22 +5420,65 @@ function renderCommandList(query = "") {
 
   const filtered = getFilteredCommands(query);
 
-  if (filtered.length === 0) {
-    list.innerHTML = `<div class="px-4 py-8 text-center text-slate-400 text-sm">「${escapeHtml(query)}」に一致するコマンドや連絡先は見つかりませんでした</div>`;
+  if (filtered.length === 0 && query.trim() !== "") {
+    list.innerHTML = `<div class="px-4 py-8 text-center text-slate-400 text-sm">${window._t("cmd.no_results", escapeHtml(query))}</div>`;
     return;
   }
 
   if (selectedCommandIndex >= filtered.length) selectedCommandIndex = 0;
 
+  let currentCategory = null;
+
   filtered.forEach((cmd, i) => {
+    // オブジェクトのプロパティ、またはIDからカテゴリを動的かつ確実に判定する（安全装置）
+    let cat = cmd.category;
+    if (!cat) {
+      if (cmd.id.startsWith("detail_") || cmd.id.startsWith("mail_") || cmd.id.startsWith("tel_")) cat = "contacts";
+      else if (cmd.id.startsWith("tpl_")) cat = "templates";
+      else cat = "commands";
+    }
+
+    // カテゴリが変わった場合に見出しを挿入
+    if (cat !== currentCategory) {
+      currentCategory = cat;
+      let catTitle = "";
+      if (currentCategory === "contacts") catTitle = window._t("cmd.section_contacts") || "Contacts";
+      else if (currentCategory === "templates") catTitle = window._t("cmd.section_templates") || "Templates";
+      else if (currentCategory === "commands") catTitle = window._t("cmd.section_commands") || "Commands";
+      if (!catTitle || catTitle.startsWith("cmd.section_")) catTitle = currentCategory.toUpperCase(); // フォールバック
+
+      const header = document.createElement("div");
+      header.className = "block px-3 py-1 mt-3 mb-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest border-b border-slate-200/50 dark:border-dark-border/50";
+      header.textContent = catTitle;
+      list.appendChild(header);
+    }
+
     const div = document.createElement("div");
     const isSelected = i === selectedCommandIndex;
-    div.className = `px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 dark:bg-primary/10 text-primary" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white"}`;
+    div.className = `command-item px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 dark:bg-primary/10 text-primary" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white"}`;
 
-    let innerHtml = `<div class="flex items-center gap-3"><span class="text-xl">${cmd.icon}</span><span class="font-medium tracking-wide">${cmd.title}</span></div>`;
-    if (cmd.shortcut) {
-      // コマンドが選択されている時はバッジの色も少し強調する
-      innerHtml += `<kbd class="font-mono text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm ${isSelected ? "text-primary border-primary/20" : "text-slate-400"}">${cmd.shortcut}</kbd>`;
+    // 検索クエリがある場合、マッチした部分をハイライトする（HTMLタグを壊さないよう工夫）
+    let displayTitle = cmd.title;
+    if (query.trim().length > 0) {
+      const terms = query.normalize("NFKC").trim().split(/[\s　]+/);
+      terms.forEach(term => {
+        const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![^<]*>)`, "gi");
+        displayTitle = displayTitle.replace(regex, `<mark class="bg-primary/20 text-primary rounded px-0.5">$1</mark>`);
+      });
+    }
+
+    let innerHtml = `<div class="flex items-center gap-3 min-w-0 flex-1"><span class="text-xl shrink-0">${cmd.icon}</span><span class="font-medium tracking-wide truncate flex-1">${displayTitle}</span></div>`;
+
+    // 右側のバッジやショートカットのコンテナ
+    if (cmd.shortcut || cmd.badge) {
+      innerHtml += `<div class="flex items-center gap-2 shrink-0 pl-2">`;
+      if (cmd.badge) {
+        innerHtml += `<span class="text-[10px] font-bold px-2 py-0.5 rounded border ${cmd.badgeClass || 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-dark-surface dark:border-dark-border'}">${cmd.badge}</span>`;
+      }
+      if (cmd.shortcut) {
+        innerHtml += `<kbd class="font-mono text-[10px] bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded shadow-sm ${isSelected ? "text-primary border-primary/20 dark:border-primary/20" : "text-slate-400 dark:text-slate-500"}">${cmd.shortcut}</kbd>`;
+      }
+      innerHtml += `</div>`;
     }
     div.innerHTML = innerHtml;
 
@@ -5199,6 +5488,20 @@ function renderCommandList(query = "") {
       }
       cmd.action();
     };
+
+    // マウスが乗った瞬間に選択インデックスを同期し、再描画（チラつき防止のためクラスの付け替えのみ行う）
+    div.onmouseenter = () => {
+      if (selectedCommandIndex !== i) {
+        selectedCommandIndex = i;
+        // 既存の選択状態を解除
+        list.querySelectorAll('.command-item').forEach(child => {
+          child.className = child.className.replace("bg-primary-50 dark:bg-primary/10 text-primary", "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white");
+        });
+        // 現在のホバー要素を選択状態に
+        div.className = div.className.replace("text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white", "bg-primary-50 dark:bg-primary/10 text-primary");
+      }
+    };
+
     list.appendChild(div);
 
     if (isSelected) {
@@ -5504,9 +5807,31 @@ function renderRoleSuggestions(dictKey) {
 function loadCustomDict() {
   const savedDict = getDbSetting("customRoleDict");
 
-  // businessが消されていても、communityや代替テキストで安全にフォールバックする
-  const defaultDict = roleDictionaries.business ||
-      roleDictionaries.community || [window._t("label.no_role")];
+  // デフォルト辞書の初期設定用キー
+  const defaultKeys = [
+    "role.biz.president", "role.biz.director", "role.biz.manager", "role.biz.section_chief",
+    "role.biz.team_leader", "role.biz.sales", "role.biz.engineer", "role.biz.designer"
+  ];
+
+  // 既存の平文データを翻訳キーに変換するためのマイグレーションマップ
+  const roleTranslationMap = {
+    "代表取締役": "role.biz.president", "CEO / President": "role.biz.president",
+    "取締役": "role.biz.director", "Director": "role.biz.director",
+    "部長": "role.biz.manager", "General Manager": "role.biz.manager",
+    "課長": "role.biz.section_chief", "Manager": "role.biz.section_chief",
+    "マネージャー": "role.biz.team_leader", "Team Leader": "role.biz.team_leader",
+    "営業": "role.biz.sales", "Sales": "role.biz.sales",
+    "エンジニア": "role.biz.engineer", "Engineer": "role.biz.engineer",
+    "デザイナー": "role.biz.designer", "Designer": "role.biz.designer",
+    "代表": "role.com.representative", "Representative": "role.com.representative",
+    "幹事": "role.com.organizer", "Organizer": "role.com.organizer",
+    "メンバー": "role.com.member", "Member": "role.com.member",
+    "上級": "role.com.advanced", "Advanced": "role.com.advanced",
+    "中級": "role.com.intermediate", "Intermediate": "role.com.intermediate",
+    "初級": "role.com.beginner", "Beginner": "role.com.beginner",
+    "コーチ": "role.com.coach", "Coach": "role.com.coach",
+    "ビジター": "role.com.visitor", "Visitor": "role.com.visitor"
+  };
 
   if (savedDict) {
     try {
@@ -5514,39 +5839,39 @@ function loadCustomDict() {
       if (Array.isArray(parsed)) {
         // 古い形式(文字列の配列)から新しい形式(オブジェクトの配列)へマイグレーション
         if (parsed.length > 0 && typeof parsed[0] === "string") {
-          customRoleDict = parsed.map((name) => ({ name, hidden: false }));
+          customRoleDict = parsed.map((name) => {
+            const mappedName = roleTranslationMap[name] || name;
+            return { name: mappedName, hidden: false };
+          });
         } else {
-          customRoleDict = parsed;
+          customRoleDict = parsed.map((item) => {
+            if (roleTranslationMap[item.name]) item.name = roleTranslationMap[item.name];
+            return item;
+          });
         }
       } else {
         throw new Error("Invalid format"); // catchブロックに飛ばしてデフォルト値をセットさせる
       }
     } catch (e) {
       // パースに失敗したらデフォルトで上書き
-      customRoleDict = defaultDict.map((name) => ({
-        name,
-        hidden: false,
-      }));
+      customRoleDict = defaultKeys.map((name) => ({ name, hidden: false }));
     }
   } else {
     // 初回起動時はビジネスリストをデフォルトとしてセット
-    customRoleDict = defaultDict.map((name) => ({
-      name,
-      hidden: false,
-    }));
+    customRoleDict = defaultKeys.map((name) => ({ name, hidden: false }));
   }
 
   // customRoleDict が万が一 undefined になってもエラーを出さない
   roleDictionaries.custom = (customRoleDict || [])
     .filter((i) => i && !i.hidden)
-    .map((i) => i.name);
+    .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
 }
 
 function saveCustomDict() {
   setDbSetting("customRoleDict", JSON.stringify(customRoleDict));
   roleDictionaries.custom = customRoleDict
     .filter((i) => !i.hidden)
-    .map((i) => i.name);
+    .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
   // 現在の選択がカスタムなら、datalistを即時更新
   if (document.getElementById("dict-select").value === "custom") {
     renderRoleSuggestions("custom");
@@ -5610,28 +5935,30 @@ function renderCustomDictEditor() {
     const li = document.createElement("li");
     li.dataset.index = index;
     li.draggable = true;
-    li.className = `flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-md cursor-grab active:cursor-grabbing active:bg-slate-100 transition-opacity ${item.hidden ? "opacity-50" : "opacity-100"}`;
+    li.className = `flex items-center justify-between p-3 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border rounded-md cursor-grab active:cursor-grabbing active:bg-slate-100 dark:active:bg-dark-bg transition-opacity ${item.hidden ? "opacity-50" : "opacity-100"}`;
 
     const icon = item.hidden ? "icon-eye-slash" : "icon-eye";
     const title = item.hidden ? window._t("dict.show") : window._t("dict.hide");
     const textClass = item.hidden
-      ? "text-slate-400 line-through"
-      : "text-slate-700";
+      ? "text-slate-400 dark:text-slate-500 line-through"
+      : "text-slate-700 dark:text-slate-300";
+
+    const displayName = item.name.startsWith("role.") ? window._t(item.name) : item.name;
 
     li.innerHTML = `
       <div class="flex items-center gap-3 min-w-0 flex-1">
         <!-- PC用のドラッグハンドル -->
         <svg class="hidden sm:block w-5 h-5 text-slate-400 shrink-0"><use href="#icon-drag"></use></svg>
-        <span class="font-medium ${textClass} truncate">${escapeHtml(item.name)}</span>
+        <span class="font-medium ${textClass} truncate">${escapeHtml(displayName)}</span>
       </div>
       <div class="flex items-center gap-1 shrink-0">
         <!-- スマホ用の上下移動ボタン -->
         <div class="flex flex-col sm:hidden mr-2">
-          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
-          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === customRoleDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customRoleDict.length - 1 ? "disabled" : ""}>▼</button>
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === customRoleDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customRoleDict.length - 1 ? "disabled" : ""}>▼</button>
         </div>
         <!-- 表示/非表示トグル -->
-        <button onclick="toggleCustomRoleHidden(${index})" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0" title="${title}">
+        <button onclick="toggleCustomRoleHidden(${index})" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors shrink-0" title="${title}">
           <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
         </button>
         <!-- 削除ボタン -->
@@ -5747,7 +6074,27 @@ async function changeLanguage(langCode) {
   localStorage.setItem('app_lang', langCode);
   document.documentElement.lang = langCode;
   await window.I18n.init(langCode); // 新しい言語ファイルを読み込んでHTMLを自動翻訳
+
+  // カスタム辞書内の翻訳キーを最新言語で解決し直してサジェスト配列を更新
+  if (typeof customRoleDict !== 'undefined') {
+    roleDictionaries.custom = customRoleDict
+      .filter((i) => !i.hidden)
+      .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
+
+    // 辞書編集モーダルが開いていれば再描画
+    const modal = document.getElementById("role-dict-editor-modal");
+    if (modal && !modal.classList.contains("hidden")) {
+      renderCustomDictEditor();
+    }
+  }
+
   renderData(); // メインのリストなどを再描画
+
+  // 現在選択中の辞書を再評価し、サジェストUI（<datalist>）を更新
+  const dictSelect = document.getElementById("dict-select");
+  if (dictSelect) {
+    renderRoleSuggestions(dictSelect.value);
+  }
 }
 
 // --- ファイル固有の設定を読み込んでUIに反映する ---
@@ -5935,7 +6282,24 @@ if (btnOpenTooltip) btnOpenTooltip.title = `${window._t("btn.open")} (${isMac ? 
 
 // --- 最後の砦：タブ閉じ/バックグラウンド移行時の強制バックアップ ---
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden" && isDirty && db) {
+  if (document.visibilityState === "hidden") {
+    // 1. フォーカス中のインライン編集を強制確定（Blur）させてDBに反映
+    const activeEl = document.activeElement;
+    if (activeEl && typeof activeEl.blur === "function" && activeEl.tagName !== "BODY" && activeEl.id !== "cmd-input") {
+      activeEl.blur();
+    }
+
+    // 2. 詳細モーダルが開いていて編集中の場合、裏側で「Save」を実行してDBに反映
+    const detailModal = document.getElementById("contact-detail-modal");
+    if (detailModal && !detailModal.classList.contains("hidden")) {
+      const currentDataSnapshot = JSON.stringify(getDetailFormData());
+      if (originalDetailDataSnapshot && originalDetailDataSnapshot !== currentDataSnapshot) {
+        saveContactDetail();
+      }
+    }
+
+    // 3. 確定された最新のDBをIndexedDBに緊急退避 (Fail-safe)
+    if (isDirty && db) {
     try {
       // 【追加】パスワードが設定されている場合は、平文でのバックアップを絶対に禁止する
       const currentPassword = document.getElementById("file-password").value;
@@ -5978,6 +6342,7 @@ document.addEventListener("visibilitychange", () => {
       };
     } catch (e) {
       console.error("Emergency save error", e);
+    }
     }
   }
 });
@@ -6031,10 +6396,15 @@ async function shareContact(id) {
 
   const [parent_id, memo, contact_info, role, created_at, tags] = row;
   let orgName = "";
+  let orgTags = "";
   if (parent_id) {
-    const parentStmt = db.prepare("SELECT memo FROM records WHERE id = ?");
+    const parentStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
     parentStmt.bind([parent_id]);
-    if (parentStmt.step()) orgName = parentStmt.get()[0] || "";
+    if (parentStmt.step()) {
+      const pRow = parentStmt.get();
+      orgName = pRow[0] || "";
+      orgTags = pRow[1] || "";
+    }
     parentStmt.free();
   }
 
@@ -6045,6 +6415,8 @@ async function shareContact(id) {
     role: role,
     contact_info: contact_info,
     fields: getContactFields(id),
+    item_tags: tags,
+    org_tags: orgTags,
   };
 
   const vcardData = generateVCardData([item]);
@@ -6087,10 +6459,12 @@ document.getElementById("contact-detail-modal")?.addEventListener("keydown", (e)
 
 async function shareBlock(blockId) {
   if (!db) return;
-  const blockStmt = db.prepare("SELECT memo FROM records WHERE id = ?");
+  const blockStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
   blockStmt.bind([blockId]);
   if (!blockStmt.step()) return;
-  const blockMemo = blockStmt.get()[0] || window._t("label.unnamed");
+  const pRow = blockStmt.get();
+  const blockMemo = pRow[0] || window._t("label.unnamed");
+  const blockTags = pRow[1] || "";
   blockStmt.free();
 
   const itemsStmt = db.prepare(
@@ -6107,6 +6481,8 @@ async function shareBlock(blockId) {
       role: row[3],
       contact_info: row[2],
       fields: getContactFields(row[0]),
+      item_tags: row[5],
+      org_tags: blockTags,
     });
   }
   itemsStmt.free();
