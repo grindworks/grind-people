@@ -57,6 +57,8 @@ export default {
     "export.qrcoder": "QR Coder用 CSV (vCard)",
     "toast.qr_history_merged": "{0}人分のQRコード生成履歴をマージしました",
     "confirm.qr_history_import": "QR Coderの履歴CSVを検出しました。\n氏名が一致する連絡先を探し、{0} 件の履歴をマージしますか？\n（メモ欄に履歴が追記され、「#QR発行済」タグが自動付与されます）",
+    "tag.qr_exported": "#QR発行済",
+    "tag.export_btn": "表示中をエクスポート",
     "btn.export": "エクスポート",
     "dict_edit.title": "カスタム辞書の編集",
     "dict_edit.desc": "よく使う役割や役職を登録・並び替えできます。<br>目のアイコンをクリックするとサジェストから非表示にできます。",

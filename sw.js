@@ -1,5 +1,5 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260616-18";
+const CACHE_NAME = "grindpeople-v20260619-1";
 const urlsToCache = [
   "./",
   "./index.html",

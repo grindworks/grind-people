@@ -835,8 +835,8 @@
             <input type="password" id="password-prompt-input"
               class="bg-slate-50 dark:bg-dark-surface-hover pl-4 pr-10 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-lg"
               autocomplete="new-password" data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off">
-            <button type="button" tabindex="-1" onclick="const p=document.getElementById('password-prompt-input'); const s=this.querySelector('use'); if(p.type==='password'){p.type='text';s.setAttribute('href','#icon-eye');}else{p.type='password';s.setAttribute('href','#icon-eye-slash');}" class="absolute right-3 text-slate-400 hover:text-slate-600 transition-colors">
-              <svg class="w-5 h-5"><use href="#icon-eye-slash"></use></svg>
+            <button type="button" tabindex="-1" onclick="togglePasswordPromptVisibility()" class="absolute right-3 text-slate-400 hover:text-slate-600 transition-colors">
+              <svg class="w-5 h-5"><use id="icon-prompt-eye" href="#icon-eye-slash"></use></svg>
             </button>
           </form>
         </div>

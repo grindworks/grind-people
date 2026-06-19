@@ -28,6 +28,8 @@ export default {
     "label.total": "Total Contacts",
     "unit.people": "people",
     "btn.export_view": "Export View",
+    "tag.qr_exported": "#QR-Exported",
+    "tag.export_btn": "Export View",
     "filter.all": "Show All",
     "placeholder.new_block": "Create new block (e.g., Company Name) ...",
     "btn.expand_all": "Expand All",

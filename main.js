@@ -1303,7 +1303,7 @@ function executeVCardImport(contacts) {
       orgMap.get(orgKey).members.push(c);
     });
 
-    for (const [orgKey, data] of orgMap) {
+    for (const [, data] of orgMap) {
       const orgName = data.displayName;
       const members = data.members;
       db.run("INSERT INTO records (memo, contact_info) VALUES (?, ?)", [
@@ -3447,7 +3447,7 @@ async function savePeopleFile(isSaveAs = false) {
 }
 
 // 5. 【核心部】 ファイル読み込みの共通処理
-async function processFileHandle(handle, isDummy = false) {
+async function processFileHandle(handle) {
   const statusEl = document.getElementById("status");
   if (statusEl) {
     statusEl.innerHTML = `<svg class="w-3 h-3 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span data-i18n="status.loading_file">${window._t("status.loading_file")}</span>`;
@@ -3597,7 +3597,7 @@ async function loadPeopleFile() {
         name: file.name,
         isDummy: true,
       };
-      await processFileHandle(dummyHandle, true);
+      await processFileHandle(dummyHandle);
     };
 
     // 💡 DOMに追加してからクリックしないとSafariで無視される
@@ -4588,7 +4588,7 @@ async function executeQRCoderHistoryImport(data, headers) {
           setContactField(recId, "note", newNoteText, "other", 0);
 
           // タグをマージ（言語に応じてタグ名を変える）
-          const exportTag = window.I18n.getLang() === 'ja' ? "#QR発行済" : "#QR-Exported";
+          const exportTag = window._t("tag.qr_exported");
           const mergedTags = [...new Set([...existingTags, ...additionalTags, exportTag])];
           db.run("UPDATE records SET tags = ? WHERE id = ?", [mergedTags.join(', '), recId]);
 
@@ -5299,20 +5299,20 @@ function getDynamicCommands() {
           dynamicCommands.push({
             id: `tpl_insert_${row[0]}`,
             icon: '<svg class="w-5 h-5 text-amber-500"><use href="#icon-sparkles"></use></svg>',
-            title: `[挿入] ${escapeHtml(row[1])}`,
+            title: window._t("cmd.insert_tpl", escapeHtml(row[1])),
             action: () => insertTemplate(row[0]),
           });
           // 削除コマンドを追加
           dynamicCommands.push({
             id: `tpl_delete_${row[0]}`,
             icon: '<svg class="w-5 h-5 text-red-400"><use href="#icon-trash"></use></svg>',
-            title: `<span class="text-slate-400">[削除] ${escapeHtml(row[1])}</span>`,
+            title: `<span class="text-slate-400">${window._t("cmd.delete_tpl", escapeHtml(row[1]))}</span>`,
             keepOpen: true, // パレットを閉じない設定
             action: async () => {
               if (
                 await window.requestCustomPrompt(
-                  "テンプレートの削除",
-                  `テンプレート「${row[1]}」を削除しますか？`,
+                  window._t("confirm.delete_tpl_title"),
+                  window._t("confirm.delete_tpl_desc", row[1]),
                   "",
                   "confirm",
                 )
@@ -5362,7 +5362,7 @@ function getFilteredCommands(query) {
         `SELECT c.id, c.memo, p.memo, p.id, c.contact_info, c.role, c.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL`,
       );
       while (stmt.step()) {
-        const [id, name, org, parentId, contact, role, tags] = stmt.get();
+        const [id, name, org, , contact, role, tags] = stmt.get();
         const targetText = normalize((name || "") + " " + (contact || "") + " " + (org || "") + " " + (role || "") + " " + (tags || ""));
 
         // JS側で完全な正規化テキストに対してマッチング
@@ -5749,6 +5749,20 @@ function togglePasswordVisibility() {
     pwInput.type = "password";
     iconOpen.classList.add("hidden");
     iconClosed.classList.remove("hidden");
+  }
+}
+
+function togglePasswordPromptVisibility() {
+  const p = document.getElementById('password-prompt-input');
+  const s = document.getElementById('icon-prompt-eye');
+  if (p && s) {
+    if (p.type === 'password') {
+      p.type = 'text';
+      s.setAttribute('href', '#icon-eye');
+    } else {
+      p.type = 'password';
+      s.setAttribute('href', '#icon-eye-slash');
+    }
   }
 }
 
@@ -6241,7 +6255,7 @@ document.addEventListener("drop", async (e) => {
         name: file.name,
         isDummy: true,
       };
-      await processFileHandle(dummyHandle, true);
+      await processFileHandle(dummyHandle);
     }
   } else if (extName.endsWith(".vcf")) {
     // vCardファイルのドラッグ＆ドロップインポート
@@ -6394,7 +6408,7 @@ async function shareContact(id) {
   const row = stmt.get();
   stmt.free();
 
-  const [parent_id, memo, contact_info, role, created_at, tags] = row;
+  const [parent_id, memo, contact_info, role, , tags] = row;
   let orgName = "";
   let orgTags = "";
   if (parent_id) {
