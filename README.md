@@ -22,16 +22,17 @@ It rejects the "data siloing" caused by multi-functional contact management soft
 1. **Ultimate Data Sovereignty (No SaaS, No Subscriptions)**: Your contact data is never sent to third-party servers. Everything is saved as a `.people` file in your local PC environment. All source code is open-source.
 2. **Serverless & Fully Offline (PWA)**: No PHP or database servers are required. Once installed as an app from your browser, it runs instantly with zero latency, even in offline environments.
 3. **Protected by File System Access API & Strong Encryption**: When saving, it applies strong encryption using `AES-256-GCM` via the Web Crypto API. Even if the file is leaked, it can never be decrypted without the password. *(Note: Data cannot be recovered if the password is lost. Chrome/Edge recommended for direct overwrite saving).*
-4. **A "Relay Hub" Connecting to OS Standard Address Books**: Filter accumulated data by tags and bulk-export in vCard (.vcf) or CSV formats (Google/Outlook). The detailed contact editor allows for granular data input compliant with vCard standards before exporting. Import the output file to integrate clean data into Apple, Google, or Microsoft contacts.
+4. **A "Relay Hub" Connecting to OS Standard Address Books (and QR Coder)**: Filter accumulated data by tags and bulk-export in vCard (.vcf) or CSV formats (Google/Outlook, plus dedicated QR Coder support). The detailed contact editor allows for granular data input compliant with vCard standards before exporting. Import the output file to integrate clean data into Apple, Google, or Microsoft contacts. When importing QR Coder history logs, it automatically merges the generation history into contact notes and appends the `#QR-Exported` tag.
 5. **BYO-AI (Bring Your Own AI) Approach**: To maintain the "fully offline" constraint, it doesn't communicate with external AI APIs. Just copy the built-in prompt and pass it to ChatGPT or Claude to format messy text data (like copied tables or lists) into a clean CSV structure ready for import.
 6. **Block-Editor-Like Input Experience**: Create parent blocks like "Acme Inc." and add members intuitively. Also supports bulk import by dragging and dropping `.vcf` or `.csv` files.
 7. **Ultra-Fast Input (Grind & Polish)**:
    - **Smart Paste**: Paste email signatures to automatically parse name, contact, and role.
    - **Command Palette (`Cmd+K`)**: Access all functions entirely with the keyboard.
+   - **Markdown Export**: Copy your filtered contact lists as clean Markdown instantly via the Command Palette, perfect for sharing in chat or pasting into LLMs.
    - **Templates**: Save frequently used block structures as templates.
 8. **Flexible Category Filters & Web Share API**: Dynamic grouping by hashtags. Send vCard data directly via the OS share menu on mobile devices.
 9. **Multiplexed Local Auto-Save**: Continuous draft saving via IndexedDB prevents data loss during browser crashes.
-10. **Comprehensive & Universal Data Structure**: The detailed editing modal supports a wide range of fields, including phonetic names, multiple addresses, phone numbers, emails, and social media profiles, based on the vCard specification. The UI is fully internationalized for both English and Japanese.
+10. **Comprehensive & Universal Data Structure**: The detailed editing modal supports a wide range of fields, including phonetic names, multiple addresses, phone numbers, emails, and social media profiles, based on the vCard specification. The UI is fully internationalized for both English and Japanese. The UI includes a customizable role/title dictionary with drag-and-drop ordering to speed up manual entry.
 
 ### Usage
 1. Access `index.html` in an **HTTPS environment** or on `localhost`.
@@ -83,7 +84,7 @@ OSのローカルにあるデータベースファイルをブラウザから直
 
 ### 4. OS標準アドレス帳と繋がる「中継ハブ」機能
 
-People自身は最終的な住所録になることを目指していません。溜まったデータは、タグやグループで絞り込み、vCard (.vcf) や 各種CSV（Google連絡先、Outlook対応）形式で一括エクスポートが可能です。詳細編集モーダルで、氏名・住所・複数の電話番号やメールアドレスなどをvCard仕様に準拠した形で細かく入力・管理できます。出力されたファイルをダブルクリックしたり読み込ませるだけで、AppleやGoogle、Microsoftの標準連絡先にクリーンなデータが統合されます。
+People自身は最終的な住所録になることを目指していません。溜まったデータは、タグやグループで絞り込み、vCard (.vcf) や 各種CSV（Google連絡先、Outlook対応、および「QR Coder」連携）形式で一括エクスポートが可能です。詳細編集モーダルで、氏名・住所・複数の電話番号やメールアドレスなどをvCard仕様に準拠した形で細かく入力・管理できます。出力されたファイルをダブルクリックしたり読み込ませるだけで、AppleやGoogle、Microsoftの標準連絡先にクリーンなデータが統合されます。さらに、QR Coderの履歴CSVをインポートした際は、QR生成履歴を自動でマージして「#QR発行済」タグを付与する高度な連携機能も備えています。
 
 ### 5. BYO-AI（Bring Your Own AI）アプローチ
 
@@ -98,6 +99,7 @@ Excelのようなレガシーな表入力ではなく、「株式会社〇〇」
 
 - **Smart Paste (署名スマート解析):** メールなどの署名テキストを氏名欄にペーストするだけで、名前・連絡先・役職を自動で振り分けて入力します。
 - **コマンドパレット (Cmd+K / Ctrl+K):** マウスを使わずに、あらゆる機能の呼び出しやメンバーのインクリメンタル検索にアクセスできます。
+- **Markdownエクスポート:** 絞り込んだ連絡先の一覧を、コマンドパレットから一瞬でMarkdown形式としてクリップボードにコピー可能。チャットでの共有やLLMへの貼り付けに最適です。
 - **テンプレート機能:** よく使うブロック構成をテンプレートとして保存し、いつでも一瞬で呼び出せます。
 
 ### 8. 柔軟なカテゴリフィルターとWeb Share API対応
@@ -111,7 +113,7 @@ Excelのようなレガシーな表入力ではなく、「株式会社〇〇」
 
 ### 10. 国際化対応とユニバーサルなデータ構造
 
-詳細編集モーダルでは、vCard仕様に基づいたフリガナ、複数の住所・電話番号・メールアドレス、SNSプロフィールなど幅広いデータ入力に対応。UIは日本語と英語に完全対応しています。
+詳細編集モーダルでは、vCard仕様に基づいたフリガナ、複数の住所・電話番号・メールアドレス、SNSプロフィールなど幅広いデータ入力に対応。UIは日本語と英語に完全対応しています。また、オートコンプリート用の「役職辞書」は設定画面から自由に編集・並び替え（ドラッグ＆ドロップ）が可能で、手入力のスピードをさらに引き上げます。
 
 ## 使い方
 

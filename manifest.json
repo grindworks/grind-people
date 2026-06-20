@@ -22,7 +22,9 @@
       "action": "./index.html",
       "accept": {
         "application/x-sqlite3": [".people"],
-        "application/octet-stream": [".people"]
+        "application/octet-stream": [".people", ".vcf", ".csv"],
+        "text/csv": [".csv"],
+        "text/vcard": [".vcf"]
       },
       "icons": [
         {

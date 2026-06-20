@@ -98,6 +98,7 @@ self.addEventListener("fetch", (event) => {
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         }
+        return cachedResponse;
       });
 
       // キャッシュがあれば即座に返し(爆速)、無ければネットワークの完了を待つ (Stale-while-revalidate)

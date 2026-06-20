@@ -2,7 +2,6 @@ export default {
     "app.title": "People",
     "toast.saved": "Data has been saved",
     "toast.import": "Imported {0} records",
-    "hello.user": "Hello, {name}",
     "prompt.delete": "Are you sure you want to permanently delete '{0}'?",
     "aria.select_lang": "Select Language",
     "title.select_lang": "Switch Language",

@@ -340,6 +340,22 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
+function getLocalTimeFormatted(date = new Date(), format = "default") {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const sec = String(date.getSeconds()).padStart(2, "0");
+  
+  if (format === "suffix") {
+    return `${yyyy}${mm}${dd}_${hh}${min}${sec}`;
+  } else if (format === "dateOnly") {
+    return `${yyyy}-${mm}-${dd} 00:00:00`;
+  }
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+}
+
 // セキュアなパスワード入力プロンプト (Promiseラッパー)
 function requestPasswordPrompt(message) {
   return new Promise((resolve) => {
@@ -504,9 +520,9 @@ function handlePlainTextPaste(event) {
   }
 
   let success = false;
-  if (document.queryCommandSupported("insertText")) {
+  try {
     success = document.execCommand("insertText", false, cleanText);
-  }
+  } catch (e) {}
 
   if (!success) {
     const selection = window.getSelection();
@@ -668,8 +684,7 @@ document.addEventListener("paste", async (e) => {
 
       // 未分類の場合は自動的に新しいブロックを作るか、既存のブロックに追加する
       if (!parentId && db) {
-        const now = new Date();
-        const localTime = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+        const localTime = getLocalTimeFormatted();
         db.run("INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)", ["Pasted Contacts", null, null, localTime]);
         parentId = db.exec("SELECT last_insert_rowid()")[0]?.values?.[0]?.[0];
       }
@@ -1170,8 +1185,10 @@ function parseVCardText(text) {
         }
         case "NOTE": {
           const unescapedNote = value
+            .replace(/\\\\/g, "\\")
             .replace(/\\n/gi, "\n")
-            .replace(/\\,/g, ",");
+            .replace(/\\,/g, ",")
+            .replace(/\\;/g, ";");
           contact.fields.push({
             key: "note",
             value: unescapedNote,
@@ -1549,11 +1566,11 @@ function handleLaunchFiles() {
         }
       }
 
-      const handle = launchParams.files[0];
-      if (handle.name.endsWith(".vcf")) {
+      const lowerName = handle.name.toLowerCase();
+      if (lowerName.endsWith(".vcf")) {
         const file = await handle.getFile();
         await importVCardFile(file);
-      } else if (handle.name.endsWith(".csv")) {
+      } else if (lowerName.endsWith(".csv")) {
         const file = await handle.getFile();
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(file);
@@ -1631,14 +1648,7 @@ function addBlock() {
     defaultTag = currentActiveTag.replace(/^[#＃]/, ""); // #を除去して保存
   }
 
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  const sec = String(now.getSeconds()).padStart(2, "0");
-  const localTime = `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+  const localTime = getLocalTimeFormatted();
 
   db.run(
     "INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)",
@@ -1714,14 +1724,7 @@ function insertRecord(
     // SQLiteのCURRENT_TIMESTAMP(UTC)による9時間ズレを防ぐため、JS側でローカル時間を記録
     query =
       "INSERT INTO records (parent_id, memo, contact_info, role, tags, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const hh = String(now.getHours()).padStart(2, "0");
-    const min = String(now.getMinutes()).padStart(2, "0");
-    const sec = String(now.getSeconds()).padStart(2, "0");
-    params.push(`${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`);
+    params.push(getLocalTimeFormatted());
   }
 
   let stmt;
@@ -1949,8 +1952,8 @@ function updateRecord(id, field, newValue, element) {
       activeEl.hasAttribute("data-id")
     ) {
       const field = activeEl.getAttribute("data-field");
-      const id = activeEl.getAttribute("data-id");
-      focusSelector = `[data-id="${id}"][data-field="${field}"]`;
+      const focusId = activeEl.getAttribute("data-id");
+      focusSelector = `[data-id="${focusId}"][data-field="${field}"]`;
     } else if (activeEl.classList.contains("item-memo")) {
       const form = activeEl.closest("form");
       if (form) focusSelector = `#${form.id} .item-memo`;
@@ -1961,14 +1964,14 @@ function updateRecord(id, field, newValue, element) {
       activeEl.hasAttribute("data-field") &&
       activeEl.getAttribute("data-field") === "role"
     ) {
-      const id = activeEl.getAttribute("data-id");
-      focusSelector = `input[data-id="${id}"][data-field="role"]`;
+      const focusId = activeEl.getAttribute("data-id");
+      focusSelector = `input[data-id="${focusId}"][data-field="role"]`;
     } else if (
       activeEl.hasAttribute("data-field") &&
       activeEl.getAttribute("data-field") === "tags"
     ) {
-      const id = activeEl.getAttribute("data-id");
-      focusSelector = `input[data-id="${id}"][data-field="tags"]`;
+      const focusId = activeEl.getAttribute("data-id");
+      focusSelector = `input[data-id="${focusId}"][data-field="tags"]`;
     } else if (activeEl.classList.contains("item-role")) {
       const form = activeEl.closest("form");
       if (form) focusSelector = `#${form.id} .item-role`;
@@ -2944,14 +2947,7 @@ function insertTemplate(templateId) {
     defaultTag = currentActiveTag.replace(/^[#＃]/, "");
   }
 
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  const sec = String(now.getSeconds()).padStart(2, "0");
-  const localTime = `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
+  const localTime = getLocalTimeFormatted();
 
   // 新しい親ブロックを作成
   db.run(
@@ -2966,8 +2962,7 @@ function insertTemplate(templateId) {
   }
 
   // 今日の日付を取得 (子要素の created_at 用)
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
+  const dateStr = getLocalTimeFormatted(new Date(), "dateOnly");
 
   // 子要素を展開して一気にINSERT
   let insertStmt = null;
@@ -3747,7 +3742,6 @@ function generateVCardData(items) {
     vcardData += "BEGIN:VCARD\r\n";
     vcardData += "VERSION:3.0\r\n";
     vcardData += `FN:${cleanName}\r\n`;
-    if (cleanOrg) vcardData += `ORG:${cleanOrg}\r\n`;
     vcardData += `N:${nProp}\r\n`;
 
     if (fYomi || gYomi) {
@@ -3755,7 +3749,8 @@ function generateVCardData(items) {
       vcardData += `X-PHONETIC-LAST-NAME:${fYomi}\r\n`;
     }
     if (nickname) vcardData += `NICKNAME:${nickname}\r\n`;
-    if (finalOrg || dept) vcardData += `ORG:${finalOrg || ""};${dept}\r\n`;
+    const orgLine = (finalOrg || dept) ? `${finalOrg || ""}${dept ? ";" + dept : ""}` : cleanOrg;
+    if (orgLine) vcardData += `ORG:${orgLine}\r\n`;
     if (cleanRole) vcardData += `TITLE:${cleanRole}\r\n`;
 
     // ★ OSの連絡先に自動でグループ分けさせるマジック
@@ -3852,14 +3847,7 @@ function triggerVCardDownload(vcardData, filenameBase) {
     type: "text/vcard;charset=utf-8;",
   });
   const url = URL.createObjectURL(blob);
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  const hh = String(today.getHours()).padStart(2, "0");
-  const min = String(today.getMinutes()).padStart(2, "0");
-  const sec = String(today.getSeconds()).padStart(2, "0");
-  const dateSuffix = `${yyyy}${mm}${dd}_${hh}${min}${sec}`;
+  const dateSuffix = getLocalTimeFormatted(new Date(), "suffix");
   const a = document.createElement("a");
   a.href = url;
   a.download = `${filenameBase}_${dateSuffix}.vcf`;
@@ -4005,9 +3993,10 @@ function exportQRCoderCSV() {
 
       const postal = getField("addr_postal");
       const region = getField("addr_region");
+      const city = getField("addr_city");
       const street = getField("addr_street");
       const country = getField("addr_country");
-      address = [postal, region, street, country].filter(Boolean).join(" ");
+      address = [postal, region, city, street, country].filter(Boolean).join(" ");
 
       const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
       const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
@@ -4465,13 +4454,9 @@ async function executeCSVImport() {
         let finalDateStr = "";
         if (dateStr && !isNaN(parsedDate.getTime())) {
           // タイムゾーンによる日付のズレを防ぐため、ローカル時間のまま手動で文字列化
-          const yyyy = parsedDate.getFullYear();
-          const mm = String(parsedDate.getMonth() + 1).padStart(2, "0");
-          const dd = String(parsedDate.getDate()).padStart(2, "0");
-          finalDateStr = `${yyyy}-${mm}-${dd} 00:00:00`;
+          finalDateStr = getLocalTimeFormatted(parsedDate, "dateOnly");
         } else {
-          const today = new Date();
-          finalDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")} 00:00:00`;
+          finalDateStr = getLocalTimeFormatted(new Date(), "dateOnly");
         }
 
         if (insertStmt) {
@@ -5101,14 +5086,7 @@ function downloadCSVFile(csvText, filenameBase) {
   const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
   const blob = new Blob([bom, csvText], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  const hh = String(today.getHours()).padStart(2, "0");
-  const min = String(today.getMinutes()).padStart(2, "0");
-  const sec = String(today.getSeconds()).padStart(2, "0");
-  const ds = `${yyyy}${mm}${dd}_${hh}${min}${sec}`;
+  const ds = getLocalTimeFormatted(new Date(), "suffix");
   const a = document.createElement("a");
   a.href = url;
   a.download = `${filenameBase}_${ds}.csv`;
@@ -6314,49 +6292,49 @@ document.addEventListener("visibilitychange", () => {
 
     // 3. 確定された最新のDBをIndexedDBに緊急退避 (Fail-safe)
     if (isDirty && db) {
-    try {
-      // 【追加】パスワードが設定されている場合は、平文でのバックアップを絶対に禁止する
-      const currentPassword = document.getElementById("file-password").value;
-      if (currentPassword) {
-        console.warn(
-          window._t("log.emergency_backup_skip"),
-        );
-        return;
-      }
-
-      // 簡易的なサイズチェック（SQLiteのページ数などで推定）
-      const pageSizeRes = db.exec("PRAGMA page_size");
-      const pageCountRes = db.exec("PRAGMA page_count");
-      if (pageSizeRes.length && pageCountRes.length) {
-        const sizeBytes =
-          pageSizeRes[0].values[0][0] * pageCountRes[0].values[0][0];
-        if (sizeBytes > 5 * 1024 * 1024) {
+      try {
+        // 【追加】パスワードが設定されている場合は、平文でのバックアップを絶対に禁止する
+        const currentPassword = document.getElementById("file-password").value;
+        if (currentPassword) {
           console.warn(
-            "DBが大きすぎるため、終了時のバックアップをスキップします",
+            window._t("log.emergency_backup_skip"),
           );
           return;
         }
+
+        // 簡易的なサイズチェック（SQLiteのページ数などで推定）
+        const pageSizeRes = db.exec("PRAGMA page_size");
+        const pageCountRes = db.exec("PRAGMA page_count");
+        if (pageSizeRes.length && pageCountRes.length) {
+          const sizeBytes =
+            pageSizeRes[0].values[0][0] * pageCountRes[0].values[0][0];
+          if (sizeBytes > 5 * 1024 * 1024) {
+            console.warn(
+              "DBが大きすぎるため、終了時のバックアップをスキップします",
+            );
+            return;
+          }
+        }
+
+        const data = db.export();
+
+        // 【セキュリティ修正 3】: タブ終了時の Race Condition キル対策
+        // 非同期の暗号化（encryptData）を待つとブラウザにプロセスを殺されてデータが消失するため、
+        // 終了時の緊急退避に限っては、サンドボックスで保護されたIndexedDBへ即座に非同期書き込みリクエストを発行する（ベストエフォート）。
+        const tx = indexedDB.open(DB_NAME, 1);
+        tx.onsuccess = (e) => {
+          const idb = e.target.result;
+          const store = idb
+            .transaction(STORE_NAME, "readwrite")
+            .objectStore(STORE_NAME);
+          store.put(data, "latest_draft");
+        };
+        tx.onerror = (e) => {
+          console.warn(window._t("log.emergency_backup_denied"));
+        };
+      } catch (e) {
+        console.error("Emergency save error", e);
       }
-
-      const data = db.export();
-
-      // 【セキュリティ修正 3】: タブ終了時の Race Condition キル対策
-      // 非同期の暗号化（encryptData）を待つとブラウザにプロセスを殺されてデータが消失するため、
-      // 終了時の緊急退避に限っては、サンドボックスで保護されたIndexedDBへ即座に非同期書き込みリクエストを発行する（ベストエフォート）。
-      const tx = indexedDB.open(DB_NAME, 1);
-      tx.onsuccess = (e) => {
-        const idb = e.target.result;
-        const store = idb
-          .transaction(STORE_NAME, "readwrite")
-          .objectStore(STORE_NAME);
-        store.put(data, "latest_draft");
-      };
-      tx.onerror = (e) => {
-        console.warn(window._t("log.emergency_backup_denied"));
-      };
-    } catch (e) {
-      console.error("Emergency save error", e);
-    }
     }
   }
 });

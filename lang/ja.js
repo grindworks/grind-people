@@ -1,9 +1,8 @@
 export default {
     "app.title": "People",
     "toast.saved": "データを保存しました",
-    "toast.import": "{0} 件のデータをインポートしました",
-    "hello.user": "{name}さん、こんにちは",
-    "prompt.delete": "「{0}」を完全に削除しますか？",
+    "toast.import": "{0}件の連絡先をインポートしました",
+    "prompt.delete": "本当に「{0}」を完全に削除してもよろしいですか？",
     "aria.select_lang": "言語を選択",
     "title.select_lang": "言語を切り替え",
     "aria.select_dict": "サジェスト辞書を選択",
