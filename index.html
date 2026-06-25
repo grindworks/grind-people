@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>People - Smart Contact Hub</title>
 
   <!-- SEO / OGP Settings -->
@@ -51,8 +51,8 @@
   <!-- iOS用 ホーム画面アイコン -->
   <link rel="apple-touch-icon" href="icon-192.png">
 
-  <!-- Global Footer Script -->
-  <script src="https://grindsite.com/tools/footer.js" defer></script>
+  <!-- Use shared footer.js from one directory up -->
+  <script src="../footer.js" defer></script>
   <script>
     // FOUC (Flash of Unstyled Content) 完全防止
     try {
@@ -252,7 +252,7 @@
 
           <!-- 暗号化パスワード入力 -->
           <form onsubmit="event.preventDefault();" class="relative flex items-center">
-            <input type="text" autocomplete="username" class="hidden" value="local-user">
+            <input type="text" autocomplete="username" class="sr-only" value="local-user" tabindex="-1">
             <label for="file-password" class="sr-only">暗号化パスワード</label>
             <input type="password" id="file-password" data-i18n-placeholder="placeholder.password" placeholder="Encryption Password..." autocomplete="new-password"
               data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
@@ -451,7 +451,7 @@
           </div>
           <label for="new-block-memo" class="sr-only" data-i18n="empty.btn_new">Create new block</label>
           <input type="text" id="new-block-memo" oninput="setDirty(true)" data-i18n-placeholder="placeholder.new_block" placeholder="Create new block (e.g., Company Name) ..."
-            onkeydown="if(event.key==='Enter' && event.isComposing) { event.preventDefault(); return; }"
+            onkeydown="if(event.key==='Enter' && event.isComposing) { return; }"
             class="bg-transparent py-4 pr-4 pl-10 border-slate-200 focus:border-primary dark:border-dark-border border-b-2 outline-none w-full font-extrabold text-slate-900 dark:text-white text-2xl transition-colors placeholder-slate-400">
           <button type="submit" class="hidden" data-i18n="btn.add">Add</button>
         </form>
@@ -720,7 +720,12 @@
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
                 <div><label for="detail-job-title" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.job_title">Role/Title</label><input
-                    type="text" id="detail-job-title" data-i18n-placeholder="placeholder.job_title_detail" placeholder="Manager / Organizer"
+                    type="text" id="detail-job-title" list="role-suggestions"
+                    onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 'false'; if(typeof this.showPicker === 'function') this.showPicker();"
+                    oninput="this.dataset.cleared = (this.value === '') ? 'true' : 'false';"
+                    onkeydown="if(event.key==='Backspace' || event.key==='Delete') this.dataset.cleared='true';"
+                    onblur="if(this.value === '' && this.dataset.cleared !== 'true') this.value = this.dataset.old;"
+                    data-i18n-placeholder="placeholder.job_title_detail" placeholder="Manager / Organizer"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
               </div>
@@ -800,7 +805,7 @@
                 <div class="relative flex items-center">
                   <input type="date" id="detail-birthday"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm pr-8">
-                  <button type="button" tabindex="-1" onclick="document.getElementById('detail-birthday').value=''" class="absolute right-2 text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer" title="Clear">&times;</button>
+                  <button type="button" tabindex="-1" onclick="document.getElementById('detail-birthday').value=''" class="absolute right-8 text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer" title="Clear">&times;</button>
                 </div>
               </div>
               <div><label for="detail-note" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.note">Notes</label><textarea
@@ -831,7 +836,7 @@
         <div class="space-y-4 px-6 py-6">
           <p id="password-prompt-message" class="text-slate-600 text-sm" data-i18n="prompt.pw_desc">ファイルは暗号化されています。解除パスワードを入力してください:</p>
           <form onsubmit="event.preventDefault(); document.getElementById('password-prompt-submit').click();" class="relative flex items-center">
-            <input type="text" autocomplete="username" class="hidden" value="local-user">
+            <input type="text" autocomplete="username" class="sr-only" value="local-user" tabindex="-1">
             <input type="password" id="password-prompt-input"
               class="bg-slate-50 dark:bg-dark-surface-hover pl-4 pr-10 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-lg"
               autocomplete="new-password" data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off">
@@ -945,6 +950,8 @@
                   if (window.getIsDirty && window.getIsDirty()) {
                     const isConfirmed = await window.requestCustomPrompt(window._t('confirm.title'), window._t('confirm.reload_unsaved'), "", "confirm");
                     if (!isConfirmed) return;
+
+                    if (typeof setDirty === 'function') setDirty(false);
                   }
                   location.reload();
                 };

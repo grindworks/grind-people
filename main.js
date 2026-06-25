@@ -187,17 +187,13 @@ function openDB() {
 }
 
 async function saveDraft(uints) {
-  try {
-    const idb = await openDB();
-    const tx = idb.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(uints, "latest_draft");
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (e) {
-    console.error("Draft save failed", e);
-  }
+  const idb = await openDB();
+  const tx = idb.transaction(STORE_NAME, "readwrite");
+  tx.objectStore(STORE_NAME).put(uints, "latest_draft");
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function loadDraft() {
@@ -293,6 +289,8 @@ function setDirty(state) {
         }
       } catch (e) {
         console.error("Draft save failed", e);
+        // Show a warning toast if backup fails due to quota limit
+        showToast("Backup failed. Check device storage.", "⚠️", "warning");
       } finally {
         draftTimer = null; // 保存完了後にタイマーを解放
       }
@@ -325,7 +323,7 @@ window.focusAndSelectAll = function (el) {
 };
 
 function extractRecordTags(memoStr, fieldTagsStr) {
-  const memoTags = ((memoStr || "").match(/[#＃][^\s　,、。\.・()（）「」]+/g) || []).map(t => t.replace(/[#＃]/, ""));
+  const memoTags = ((memoStr || "").match(/[#＃][^\s　,、。\.・()（）「」#＃]+/g) || []).map(t => t.replace(/^[#＃]/, ""));
   const fieldTags = (fieldTagsStr || "").split(/[,、\s]+/).map(t => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
   return [...new Set([...memoTags, ...fieldTags])];
 }
@@ -403,10 +401,6 @@ function requestPasswordPrompt(message) {
       resolve(null);
     };
     const onKeyDown = (e) => {
-      if (e.key === "Enter" && !e.isComposing) {
-        e.preventDefault();
-        onSubmit();
-      }
       if (e.key === "Escape") {
         e.preventDefault();
         onCancel();
@@ -548,6 +542,11 @@ function handleSmartPaste(event) {
   );
   if (!text || !text.includes("\n")) return; // 複数行でない場合は通常のペースト処理に任せる
 
+  // Bypass smart parsing for vCard data and let the global vCard importer handle it
+  if (text.toUpperCase().includes("BEGIN:VCARD") && text.toUpperCase().includes("END:VCARD")) {
+    return;
+  }
+
   const emailMatch = text.match(
     /([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
   );
@@ -627,6 +626,14 @@ document.addEventListener("paste", async (e) => {
 
   const text = (e.clipboardData || window.clipboardData).getData('text/plain');
   if (!text) return;
+
+  // Prevent client-side DoS (OOM crash) by skipping parsing for huge pastes over 1MB
+  if (text.length > 1024 * 1024) {
+    if (!isInputFocused) {
+      showToast(window._t("error.file_too_large_5"), "⚠️", "warning");
+    }
+    return; // 巨大データは通常のブラウザペースト挙動に任せ、重い解析をバイパス
+  }
 
   // 1. vCard形式データの検知 (Global: どこでペーストされても優先)
   if (text.toUpperCase().includes("BEGIN:VCARD") && text.toUpperCase().includes("END:VCARD")) {
@@ -1566,6 +1573,7 @@ function handleLaunchFiles() {
         }
       }
 
+      const handle = launchParams.files[0];
       const lowerName = handle.name.toLowerCase();
       if (lowerName.endsWith(".vcf")) {
         const file = await handle.getFile();
@@ -1787,6 +1795,12 @@ function autoSuggestRole(memoInput) {
       if (role) {
         roleInput.value = role; // 役割を自動入力
 
+        // DBに即時反映させ、未保存(isDirty)フラグを立てる
+        const itemId = roleInput.getAttribute("data-id");
+        if (itemId) {
+          updateRecord(itemId, 'role', role, roleInput);
+        }
+
         // （おまけ）自動入力されたことがユーザーに伝わるよう、一瞬だけ色を変えるマイクロインタラクション
         roleInput.classList.add(
           "!bg-purple-100",
@@ -1979,8 +1993,8 @@ function updateRecord(id, field, newValue, element) {
   }
 
   // ★ 連絡先や日付が変更された場合のみ再計算・再描画
-  if (field === "contact_info") {
-    if (element) {
+  if (field === "contact_info" || field === "memo" || field === "role") {
+    if (element && element.innerText !== val) {
       element.innerText = val !== null ? val : "";
     }
   } else if (field === "tags" || (field === "memo" && /[#＃]/.test(val))) {
@@ -2102,12 +2116,19 @@ function animateTotal(newTotal) {
   const el = document.getElementById("grand-total-num");
   if (!el) return;
 
+  const start = currentDisplayedTotal;
+  
+  // 変更がない場合は無駄なアニメーションループをスキップする
+  if (start === newTotal) {
+    el.textContent = newTotal.toLocaleString("ja-JP");
+    return;
+  }
+
   // 既に実行中のアニメーションがあればキャンセル（描画の暴走・CPUスパイク防止）
   if (totalAnimationId !== null) {
     cancelAnimationFrame(totalAnimationId);
   }
 
-  const start = currentDisplayedTotal;
   const duration = 500;
   const startTime = performance.now();
 
@@ -2656,56 +2677,58 @@ function renderData(focusBlockId = null) {
 
   window.tocObserver = new IntersectionObserver(
     (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          document.querySelectorAll(".toc-item").forEach((el) => {
-            el.classList.remove(
-              "text-primary",
-              "dark:text-blue-400",
-              "bg-primary-50",
-              "dark:bg-primary/20",
-              "font-bold",
-            );
-            el.classList.add(
-              "text-slate-500",
-              "dark:text-slate-400",
-              "font-medium",
-            );
-          });
-          const activeToc = document.querySelector(
-            `.toc-item[href="#${entry.target.id}"]`,
-          );
-          if (activeToc) {
-            activeToc.classList.remove(
-              "text-slate-500",
-              "dark:text-slate-400",
-              "font-medium",
-            );
-            activeToc.classList.add(
-              "text-primary",
-              "dark:text-blue-400",
-              "bg-primary-50",
-              "dark:bg-primary/20",
-              "font-bold",
-            );
-            const tocContainer = document.getElementById("toc-container");
-            const tocFilter = document.getElementById("toc-filter");
-            const isFiltering = tocFilter && tocFilter.value.trim() !== "";
+      // 同時に複数の要素が交差した場合、最後の要素（最も新しく画面に入った要素）だけを処理する
+      const intersectingEntries = entries.filter(e => e.isIntersecting);
+      if (intersectingEntries.length === 0) return;
+      const targetEntry = intersectingEntries[intersectingEntries.length - 1];
 
-            if (tocContainer && !tocContainer.matches(":hover") && !isFiltering) {
-              // scrollIntoViewはページ全体のスクロールを阻害してカクつきを生むため、コンテナ内の相対位置で安全にスクロールさせる
-              const scrollPos =
-                activeToc.offsetTop -
-                tocContainer.clientHeight / 2 +
-                activeToc.clientHeight / 2;
-              tocContainer.scrollTo({
-                top: scrollPos,
-                behavior: "smooth",
-              });
-            }
-          }
-        }
+      // 現在アクティブな(色がついている)要素 "だけ" を探してリセットする（超軽量）
+      document.querySelectorAll(".toc-item.text-primary").forEach((el) => {
+        el.classList.remove(
+          "text-primary",
+          "dark:text-blue-400",
+          "bg-primary-50",
+          "dark:bg-primary/20",
+          "font-bold",
+        );
+        el.classList.add(
+          "text-slate-500",
+          "dark:text-slate-400",
+          "font-medium",
+        );
       });
+      const activeToc = document.querySelector(
+        `.toc-item[href="#${targetEntry.target.id}"]`,
+      );
+      if (activeToc) {
+        activeToc.classList.remove(
+          "text-slate-500",
+          "dark:text-slate-400",
+          "font-medium",
+        );
+        activeToc.classList.add(
+          "text-primary",
+          "dark:text-blue-400",
+          "bg-primary-50",
+          "dark:bg-primary/20",
+          "font-bold",
+        );
+        const tocContainer = document.getElementById("toc-container");
+        const tocFilter = document.getElementById("toc-filter");
+        const isFiltering = tocFilter && tocFilter.value.trim() !== "";
+
+        if (tocContainer && !tocContainer.matches(":hover") && !isFiltering) {
+          // scrollIntoViewはページ全体のスクロールを阻害してカクつきを生むため、コンテナ内の相対位置で安全にスクロールさせる
+          const scrollPos =
+            activeToc.offsetTop -
+            tocContainer.clientHeight / 2 +
+            activeToc.clientHeight / 2;
+          tocContainer.scrollTo({
+            top: scrollPos,
+            behavior: "smooth",
+          });
+        }
+      }
     },
     { rootMargin: "-20% 0px -60% 0px" },
   );
@@ -2735,18 +2758,23 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const roleStr = item.role || "";
 
     // ★ 役職のデザインをダークモード対応し、ライトモードでもコントラストを高めて見やすくしました
-    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${window._t("placeholder.role")}" spellcheck="false" autocomplete="off" onfocus="this.select()" oninput="setDirty(true)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" onblur="updateRecord(${item.id}, 'role', this.value, this)" class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-24 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
+    let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${escapeHtml(window._t("placeholder.role"))}" spellcheck="false" autocomplete="off" 
+onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 'false'; if(typeof this.showPicker === 'function') this.showPicker();" 
+oninput="setDirty(true); this.dataset.cleared = (this.value === '') ? 'true' : 'false';" 
+onkeydown="if(event.key==='Backspace' || event.key==='Delete') this.dataset.cleared='true'; if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" 
+onblur="if(this.value === '' && this.dataset.cleared !== 'true') this.value = this.dataset.old; updateRecord(${item.id}, 'role', this.value, this);" 
+class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-24 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
 
     itemsHtml += `
       <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 dark:border-dark-border/30 group/item hover:bg-slate-50/80 dark:hover:bg-dark-surface-hover transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${avatarHtml}
           ${roleDisp}
-            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.enter_name')}">${escapeHtml(item.memo)}</span>
+            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.enter_name'))}">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
           <!-- ★ ここが既存メンバーの連絡先表示欄です -->
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.tel_email_short')}">${escapeHtml(item.contact_info || "")}</span>
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.tel_email_short'))}">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
             <!-- ★ タッチターゲットを拡大 (p-2) しました -->
             <button tabindex="-1" onclick="shareContact(${item.id})" aria-label="${window._t("aria.share")}" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="${window._t("title.share_vcard")}">
@@ -2782,13 +2810,13 @@ function updateOrCreateBlockElement(block, existingEl = null) {
         <div class="flex items-center gap-3">
           <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
           <!-- ★ select-text でiOSのフォーカスバグを防止 -->
-          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${window._t('placeholder.group_name')}">${escapeHtml(block.memo)}</h2>
+          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.group_name'))}">${escapeHtml(block.memo)}</h2>
         </div>
 
         <!-- ★ 専用タグ入力欄 -->
         <div class="flex items-center gap-1.5 mt-1.5 ml-8 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity" onclick="event.stopPropagation()">
           <svg class="w-3.5 h-3.5 text-slate-400 shrink-0"><use href="#icon-tag"></use></svg>
-          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${window._t("placeholder.add_tag")}" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
+          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${escapeHtml(window._t("placeholder.add_tag"))}" onclick="if(typeof this.showPicker === 'function') this.showPicker();" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
         </div>
       </div>
       <div class="flex items-center shrink-0">
@@ -2824,16 +2852,21 @@ function updateOrCreateBlockElement(block, existingEl = null) {
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <button type="submit" aria-label="${window._t("btn.add_member")}" class="text-primary bg-primary/10 hover:bg-primary/20 rounded-full w-10 h-10 flex items-center justify-center text-2xl leading-none font-light sm:hidden transition-colors outline-none focus:ring-2 focus:ring-primary/50 shrink-0">+</button>
-          <input type="text" placeholder="${window._t("placeholder.role")}" value="" list="role-suggestions" spellcheck="false" autocomplete="off" oninput="setDirty(true)" onfocus="this.select()" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-24 sm:w-32 shrink-0 text-base sm:text-sm outline-none text-center min-w-0">
+          <input type="text" placeholder="${escapeHtml(window._t("placeholder.role"))}" value="" list="role-suggestions" spellcheck="false" autocomplete="off" 
+onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 'false'; if(typeof this.showPicker === 'function') this.showPicker();" 
+oninput="setDirty(true); this.dataset.cleared = (this.value === '') ? 'true' : 'false';" 
+onkeydown="if(event.key==='Backspace' || event.key==='Delete') this.dataset.cleared='true'; if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" 
+onblur="if(this.value === '' && this.dataset.cleared !== 'true') this.value = this.dataset.old;" 
+class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-24 sm:w-32 shrink-0 text-base sm:text-sm outline-none text-center min-w-0">
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
           <!-- ★ onfocusのスクロールをPC限定にしてJankを防止 -->
-          <input type="text" placeholder="${window._t("placeholder.add_name")}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { event.preventDefault(); return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
+          <input type="text" placeholder="${escapeHtml(window._t("placeholder.add_name"))}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onclick="if(typeof this.showPicker === 'function') this.showPicker();" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="${window._t("title.smart_paste_help")}"><use href="#icon-sparkles"></use></svg>
 
           <!-- ★ ここが消えていた新規追加用の連絡先入力欄 (item-contact) です！ -->
-          <input type="text" inputmode="email" placeholder="${window._t("placeholder.tel_email")}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ event.preventDefault(); return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
+          <input type="text" inputmode="email" placeholder="${escapeHtml(window._t("placeholder.tel_email"))}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">${window._t("btn.add")}</button>
       </form>
@@ -3719,7 +3752,9 @@ function generateVCardData(items) {
 
     fields.forEach((f) => {
       if (!f.field_value) return;
-      const v = f.field_value;
+      const v = f.field_key !== "note" 
+        ? f.field_value.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1")
+        : f.field_value;
       if (f.field_key === "family_name") fName = v;
       if (f.field_key === "given_name") gName = v;
       if (f.field_key === "middle_name") mName = v;
@@ -3744,6 +3779,16 @@ function generateVCardData(items) {
     vcardData += `FN:${cleanName}\r\n`;
     vcardData += `N:${nProp}\r\n`;
 
+    // Append REV property to allow smart merging/updating on host OS (ISO 8601 format)
+    let revDate = new Date(); // Fallback to current time
+    if (item.created_at) {
+      // Parse local SQLite time string to Date object
+      const dtStr = item.created_at.replace(' ', 'T'); 
+      const parsed = new Date(dtStr);
+      if (!isNaN(parsed.getTime())) revDate = parsed;
+    }
+    vcardData += `REV:${revDate.toISOString()}\r\n`;
+
     if (fYomi || gYomi) {
       vcardData += `X-PHONETIC-FIRST-NAME:${gYomi}\r\n`;
       vcardData += `X-PHONETIC-LAST-NAME:${fYomi}\r\n`;
@@ -3766,6 +3811,7 @@ function generateVCardData(items) {
         // Prevent format corruption by removing newlines from fields (except notes)
         if (f.field_key !== "note") {
           v = v.replace(/[\r\n]+/g, " ");
+          v = v.replace(/([;,])/g, "\\$1");
         }
         const t = (f.field_type || "other").toUpperCase();
 
@@ -3860,7 +3906,7 @@ function exportVCard() {
   if (!db) return;
 
   // c.id, memo=氏名, role=役割, contact_info=電話・Email, parent.memo=会社・チーム名, タグ情報
-  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC`;
+  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC`;
 
   const values = [];
   let exportStmt;
@@ -3944,7 +3990,7 @@ function exportQRCoderCSV() {
   let stmt;
   try {
     stmt = db.prepare(
-      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
+      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC",
     );
     while (stmt.step()) {
       const [id, memo, org, role, contact, itemTags, orgTags] = stmt.get();
@@ -4029,9 +4075,6 @@ function exportQRCoderCSV() {
       r
         .map((v) => {
           let cell = String(v || "");
-          if (/^[=+\-@\t\r]/.test(cell)) {
-            cell = "'" + cell;
-          }
           return `"${cell.replace(/"/g, '""')}"`;
         })
         .join(","),
@@ -4614,7 +4657,7 @@ function copyAIPrompt() {
 function copyAsMarkdown() {
   if (!db) return;
   const res = db.exec(
-    "SELECT c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
+    "SELECT c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC",
   );
   if (res.length === 0) {
     showToast(window._t("toast.no_copy_data"), "⚠️", "warning");
@@ -4636,7 +4679,8 @@ function copyAsMarkdown() {
       if (!allTags.includes(activeTagRaw)) return;
     }
 
-    md += `- **${name || window._t("export.unnamed")}** (${org} / ${role || window._t("label.no_role")}) - ${contact || window._t("label.no_contact")}\n`;
+    const safeOrg = org || window._t("export.unnamed");
+    md += `- **${name || window._t("export.unnamed")}** (${safeOrg} / ${role || window._t("label.no_role")}) - ${contact || window._t("label.no_contact")}\n`;
     count++;
   });
 
@@ -4883,12 +4927,19 @@ function addDetailEmailRow(value = "", type = "work", autoFocus = true) {
   }
 }
 
+let isSavingDetail = false;
+
 function saveContactDetail() {
+  if (isSavingDetail) return;
   const currentDataSnapshot = JSON.stringify(getDetailFormData());
   if (originalDetailDataSnapshot === currentDataSnapshot) {
     closeContactDetail();
     return;
   }
+
+  isSavingDetail = true;
+
+  try {
 
   const recordId = parseInt(
     document.getElementById("detail-record-id").value,
@@ -4973,6 +5024,10 @@ function saveContactDetail() {
   closeContactDetail(false);
   renderData();
   showToast(window._t("toast.detail_saved"), '<span class="text-green-400">✔</span>');
+
+  } finally {
+    isSavingDetail = false;
+  }
 }
 
 // --- vcfファイル入力ハンドラー ---
@@ -4994,7 +5049,7 @@ function exportPlatformCSV(platform) {
   let stmt;
   try {
     stmt = db.prepare(
-      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.id ASC",
+      "SELECT c.id, c.memo, p.memo, c.role, c.contact_info, c.tags, p.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC",
     );
     while (stmt.step()) {
       const [id, memo, org, role, contact, itemTags, orgTags] = stmt.get();
@@ -5066,9 +5121,6 @@ function exportPlatformCSV(platform) {
         .map((v) => {
           // 明示的に文字列(String)にキャストし、TypeErrorを防ぐ
           let cell = String(v || "");
-          if (/^[=+\-@\t\r]/.test(cell)) {
-            cell = "'" + cell;
-          }
           return `"${cell.replace(/"/g, '""')}"`;
         })
         .join(","),
@@ -5440,7 +5492,7 @@ function renderCommandList(query = "") {
     if (query.trim().length > 0) {
       const terms = query.normalize("NFKC").trim().split(/[\s　]+/);
       terms.forEach(term => {
-        const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![^<]*>)`, "gi");
+        const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![^<]{0,150}>|[^&]{0,15};)`, "gi");
         displayTitle = displayTitle.replace(regex, `<mark class="bg-primary/20 text-primary rounded px-0.5">$1</mark>`);
       });
     }
@@ -6210,6 +6262,7 @@ document.addEventListener("drop", async (e) => {
   closeCSVModal();
   closeExportModal();
   closeRoleDictEditor();
+  closeContactDetail(false);
 
   // 拡張子に応じて処理を分岐
   const extName = file.name.toLowerCase(); // 💡 小文字に正規化して判定
@@ -6413,7 +6466,8 @@ async function shareContact(id) {
 
   const vcardData = generateVCardData([item]);
   const fileName = `${(memo || "contact").replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
-  const file = new File([vcardData], fileName, { type: "text/vcard" });
+  // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
+  const file = new File([vcardData], fileName, { type: "text/plain" });
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
@@ -6486,7 +6540,8 @@ async function shareBlock(blockId) {
 
   const vcardData = generateVCardData(dataItems);
   const fileName = `${blockMemo.replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
-  const file = new File([vcardData], fileName, { type: "text/vcard" });
+  // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
+  const file = new File([vcardData], fileName, { type: "text/plain" });
 
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {

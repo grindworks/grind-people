@@ -1,5 +1,5 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260619-1";
+const CACHE_NAME = "grindpeople-v20260625-4";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -11,12 +11,12 @@ const urlsToCache = [
   "./icon-192.png",
   "./icon-512.png",
   "./manifest.json",
+  "../footer.js",
 ];
 
 const externalUrlsToCache = [
   "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm",
-  "https://grindsite.com/tools/footer.js"
+  "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm"
 ];
 
 // インストール時にキャッシュを作成
@@ -30,9 +30,13 @@ self.addEventListener("install", (event) => {
       // ローカルファイルは通常通り一括追加
       await cache.addAll(urlsToCache);
       // 外部CDNファイルはCORS対応のため cors で個別に追加
-      for (const url of externalUrlsToCache) {
+      for (const item of externalUrlsToCache) {
+        let url;
         try {
-          const request = new Request(url, { mode: "cors" });
+          url = typeof item === "string" ? item : item.url;
+          const reqOpts = { mode: "cors" };
+          if (item.integrity) reqOpts.integrity = item.integrity;
+          const request = new Request(url, reqOpts);
           const response = await fetch(request);
           // 404エラーなどで壊れたキャッシュを保存しないための防波堤
           if (response.ok) {
@@ -73,6 +77,10 @@ self.addEventListener("activate", (event) => {
 
 // fetchイベントでキャッシュを返す
 self.addEventListener("fetch", (event) => {
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
+    return;
+  }
+
   event.respondWith(
     // クエリパラメータを無視してWASMファイルなどを確実にキャッシュヒットさせる
     caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
