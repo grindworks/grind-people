@@ -1,5 +1,5 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260625-5";
+const CACHE_NAME = "grindpeople-v20260625-6";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -62,8 +62,8 @@ self.addEventListener("fetch", (event) => {
     caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
       // ネットワークから最新を取得するPromise
       const fetchPromise = fetch(event.request).then((networkResponse) => {
-        // 取得成功したらキャッシュを裏でこっそり更新する (CORSリソースの場合は type="basic" 以外も許可するためOK判定のみ)
-        if (networkResponse && networkResponse.status === 200) {
+        // 正常なレスポンス、または外部ドメインからの不透明なレスポンス(Opaque)の場合、キャッシュを更新
+        if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
