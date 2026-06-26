@@ -11,46 +11,23 @@ const urlsToCache = [
   "./icon-192.png",
   "./icon-512.png",
   "./manifest.json",
+  './assets/sql-wasm.js',
+  './assets/sql-wasm.wasm',
 ];
 
-const externalUrlsToCache = [
-  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm',
-];
+
 
 // インストール時にキャッシュを作成
-self.addEventListener("install", (event) => {
+self.addEventListener('install', (event) => {
   // 新しいService Workerを即座にアクティブにする
   self.skipWaiting();
 
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log("Opened cache");
       // ローカルファイルは通常通り一括追加
-      await cache.addAll(urlsToCache);
-      // 外部CDNファイルはCORS対応のため cors で個別に追加
-      for (const item of externalUrlsToCache) {
-        let url;
-        try {
-          url = typeof item === "string" ? item : item.url;
-          const reqOpts = { mode: "cors" };
-          if (item.integrity) reqOpts.integrity = item.integrity;
-          const request = new Request(url, reqOpts);
-          const response = await fetch(request);
-          // 404エラーなどで壊れたキャッシュを保存しないための防波堤
-          if (response.ok) {
-            await cache.put(request, response);
-          } else {
-            console.error(
-              "外部リソースの取得に失敗したためキャッシュをスキップしました:",
-              response.status,
-              url,
-            );
-          }
-        } catch (error) {
-          console.error("外部リソースのキャッシュに失敗しました:", url, error);
-        }
-      }
+      await cache.addAll(urlsToCache.filter(url => !url.endsWith('.wasm')));
+      // WASMは個別にキャッシュ（失敗してもService Worker自体は止めない）
+      cache.add('./assets/sql-wasm.wasm').catch(() => console.warn("WASM cache failed."));
     }),
   );
 });
