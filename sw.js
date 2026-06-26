@@ -1,5 +1,5 @@
 // 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260625-4";
+const CACHE_NAME = "grindpeople-v20260625-5";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -11,12 +11,11 @@ const urlsToCache = [
   "./icon-192.png",
   "./icon-512.png",
   "./manifest.json",
-  "../footer.js",
 ];
 
 const externalUrlsToCache = [
-  "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm"
+  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm',
 ];
 
 // インストール時にキャッシュを作成
