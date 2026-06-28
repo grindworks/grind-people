@@ -1,0 +1,10 @@
+{
+  "name": "grindpeople",
+  "scripts": {
+    "build:css": "npx tailwindcss -i ./input.css -o ./styles.css --minify",
+    "watch:css": "npx tailwindcss -i ./input.css -o ./styles.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

@@ -8,16 +8,16 @@ window.I18n = (() => {
     return {
         /** Initialize language system (Async) */
         init: async function (lang = 'ja') {
-            // PHP版と同じサニタイズ
+            // Same sanitization as PHP version
             const validLang = lang.replace(/[^a-zA-Z0-9-]/g, '');
 
             try {
-                // PHPの require __DIR__ . "/lang/{$lang}.php" に相当！
+                // Equivalent to PHP's require __DIR__ . "/lang/{$lang}.php"!
                 const module = await import(`./lang/${validLang}.js`);
                 messages = module.default;
                 currentLang = validLang;
             } catch (e) {
-                // ファイルが存在しない場合は en.js にフォールバック
+                // Fallback to en.js if file does not exist
                 console.warn(`Language file [${validLang}.js] not found. Falling back to en.js`);
                 try {
                     const fallback = await import(`./lang/en.js`);
@@ -28,7 +28,7 @@ window.I18n = (() => {
                 currentLang = 'en';
             }
 
-            // 状態の保存とHTMLの反映
+            // Save state and reflect in HTML
             localStorage.setItem('app_lang', currentLang);
             document.documentElement.lang = currentLang;
             this.updateDOM();
@@ -36,7 +36,7 @@ window.I18n = (() => {
 
         /** Retrieve translated string. */
         get: function (key, params = []) {
-            // 💡 既存のフラットキー完全一致を優先し、なければドット記法でネストを解決するハイブリッドアプローチ
+            // 💡 Hybrid approach prioritizing exact flat key match, falling back to resolving nesting with dot notation
             let text = messages[key];
             if (text === undefined) {
                 text = key.split('.').reduce((obj, k) => (obj && obj[k] !== undefined) ? obj[k] : undefined, messages);
@@ -69,8 +69,13 @@ window.I18n = (() => {
 
         /** Update all DOM elements with data-i18n attributes. */
         updateDOM: function () {
+            // Secure text insertion (Default)
             document.querySelectorAll('[data-i18n]').forEach(el => {
-                el.innerHTML = this.get(el.getAttribute('data-i18n'));
+                el.textContent = this.get(el.getAttribute('data-i18n'));
+            });
+            // Explicit insertion allowing HTML tags
+            document.querySelectorAll('[data-i18n-html]').forEach(el => {
+                el.innerHTML = this.get(el.getAttribute('data-i18n-html'));
             });
             document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
                 el.setAttribute('placeholder', this.get(el.getAttribute('data-i18n-placeholder')));

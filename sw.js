@@ -1,5 +1,5 @@
-// 💡 アップデート時はここを書き換えることで更新が発火します
-const CACHE_NAME = "grindpeople-v20260625-6";
+// 💡 Rewrite this on update to trigger an update
+const CACHE_NAME = "grindpeople-v20260629-2";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -17,22 +17,22 @@ const urlsToCache = [
 
 
 
-// インストール時にキャッシュを作成
+// Create cache on install
 self.addEventListener('install', (event) => {
-  // 新しいService Workerを即座にアクティブにする
+  // Immediately activate the new Service Worker
   self.skipWaiting();
 
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // ローカルファイルは通常通り一括追加
+      // Add local files in bulk as usual
       await cache.addAll(urlsToCache.filter(url => !url.endsWith('.wasm')));
-      // WASMは個別にキャッシュ（失敗してもService Worker自体は止めない）
+      // Cache WASM individually (Do not stop Service Worker itself even if it fails)
       cache.add('./assets/sql-wasm.wasm').catch(() => console.warn("WASM cache failed."));
     }),
   );
 });
 
-// 古いキャッシュを削除
+// Delete old cache
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
@@ -51,19 +51,19 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// fetchイベントでキャッシュを返す
+// Return cache on fetch event
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
     return;
   }
 
   event.respondWith(
-    // クエリパラメータを無視してWASMファイルなどを確実にキャッシュヒットさせる
+    // Ignore query parameters to ensure cache hits for WASM files etc.
     caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
-      // ネットワークから最新を取得するPromise
+      // Promise to fetch the latest from the network
       const fetchPromise = fetch(event.request).then((networkResponse) => {
-        // 正常なレスポンス、または外部ドメインからの不透明なレスポンス(Opaque)の場合、キャッシュを更新
-        if (networkResponse && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
+        // If fetching is successful, silently update the cache in the background (For CORS resources, type is not 'basic', so just checking ok is enough)
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
@@ -71,7 +71,7 @@ self.addEventListener("fetch", (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // オフラインかつキャッシュにもない場合のフォールバック（HTMLへのアクセス時のみ）
+        // Fallback when offline and not in cache (Only upon HTML access)
         if (
           event.request.mode === "navigate" ||
           (event.request.headers.get("accept") &&
@@ -82,10 +82,11 @@ self.addEventListener("fetch", (event) => {
             headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         }
-        return cachedResponse;
+        // If no cache, return explicit error response instead of undefined
+        return cachedResponse || new Response("Offline", { status: 503, statusText: "Service Unavailable" });
       });
 
-      // キャッシュがあれば即座に返し(爆速)、無ければネットワークの完了を待つ (Stale-while-revalidate)
+      // Return immediately if cached (super fast), otherwise wait for network completion (Stale-while-revalidate)
       return cachedResponse || fetchPromise;
     }),
   );

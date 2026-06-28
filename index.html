@@ -14,16 +14,45 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://grindsite.com/tools/people/">
   <meta property="og:image" content="https://grindsite.com/tools/people/grind-people.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="og:site_name" content="Grind Tools">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ja_JP">
+  <!-- 🔴 Add: Prevent crawler index fragmentation (noise) caused by URL parameters etc. -->
+  <link rel="canonical" href="https://grindsite.com/tools/people/">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="People - Smart Contact Hub">
   <meta name="twitter:description" content="Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.">
   <meta name="twitter:image" content="https://grindsite.com/tools/people/grind-people.jpg">
 
+  <!-- JSON-LD (Schema.org) for SEO -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "People - Smart Contact Hub",
+    "url": "https://grindsite.com/tools/people/",
+    "description": "Organize first, sync later. A smart relay hub for all your contacts. Serverless, fully offline PWA contact management app.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Any",
+    "offers": {
+      "@type": "Offer",
+      "price": "0"
+    },
+    "featureList": [
+      "Fully offline capability",
+      "AES-256-GCM Encryption",
+      "vCard & CSV Export",
+      "No SaaS, local-first architecture"
+    ]
+  }
+  </script>
+
   <!-- Security: Content Security Policy (CSP) -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://grindsite.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://cdnjs.cloudflare.com ws: wss:; img-src 'self' data: https://grindsite.com;">
 
-  <!-- OSのステータスバー色をテーマに合わせる -->
+  <!-- Match OS status bar color to theme -->
   <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
 
   <!-- Google Fonts (Inter + Noto Sans JP) -->
@@ -33,28 +62,28 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+JP:wght@300;400;500;700;800;900&display=swap"
     rel="stylesheet">
 
-  <!-- ビルド済みの Tailwind CSS を読み込む (オフライン対応) -->
+  <!-- Load pre-built Tailwind CSS (Offline compatible) -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- iOS PWA用 メタタグ -->
+  <!-- Meta tags for iOS PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- SQLiteをブラウザ(Wasm)で動かすためのライブラリ -->
+  <!-- Library to run SQLite in the browser (Wasm) -->
   <!-- Security: Subresource Integrity (SRI) -->
   <script src="./assets/sql-wasm.js" defer></script>
   <!-- Favicon -->
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="manifest" href="manifest.json">
 
-  <!-- iOS用 ホーム画面アイコン -->
+  <!-- Home screen icons for iOS -->
   <link rel="apple-touch-icon" href="icon-192.png">
 
-  <!-- Global Footer Script -->
-  <script src="https://grindsite.com/tools/footer.js" defer></script>
+  <!-- Use shared footer.js from one directory up -->
+  <script src="../footer.js" defer></script>
   <script>
-    // FOUC (Flash of Unstyled Content) 完全防止
+    // Complete prevention of FOUC (Flash of Unstyled Content)
     try {
       const saved = localStorage.getItem("theme");
       if (saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
@@ -73,6 +102,15 @@
 <body
   class="bg-slate-50 selection:bg-primary/30 dark:bg-dark-bg min-h-dvh overscroll-none font-sans text-slate-900 dark:text-dark-text antialiased transition-colors duration-300"
   style="scrollbar-gutter: stable; overscroll-behavior: none; touch-action: pan-y;">
+
+  <!-- Fallback for JS-disabled crawlers and browsers -->
+  <noscript>
+    <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
+      <h1>People - Smart Contact Hub</h1>
+      <p>This is a serverless, fully offline PWA contact management app.</p>
+      <p><strong>JavaScript is required to run this application.</strong> Please enable JavaScript in your browser settings to organize, encrypt, and export your contacts securely.</p>
+    </div>
+  </noscript>
 
   <!-- SVG Sprite (Heroicons) -->
   <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1"
@@ -198,10 +236,10 @@
     </defs>
   </svg>
 
-  <!-- 全体レイアウトのラッパー -->
+  <!-- Global Layout Wrapper -->
   <div
     class="pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] flex justify-center mx-auto w-full">
-    <!-- 左側 目次カラム (TOC) -->
+    <!-- Left side TOC (Table of Contents) Column -->
     <div class="hidden xl:block relative pt-32 w-56 shrink-0">
       <nav id="toc-container"
         class="top-24 sticky space-y-1 px-4 max-h-[80vh] overflow-y-auto text-slate-500 dark:text-slate-400 text-sm scrollbar-hide">
@@ -221,12 +259,12 @@
       </nav>
     </div>
 
-    <!-- メインコンテンツ -->
-    <div class="relative px-6 py-12 w-full max-w-3xl">
-      <!-- ヘッダー -->
+    <!-- Main Content -->
+    <main class="relative px-6 py-12 w-full max-w-3xl">
+      <!-- Header -->
       <header class="z-50 relative flex lg:flex-row flex-col justify-between items-start lg:items-center gap-5 mb-8">
 
-        <!-- 左側：タイトル & ファイル名 -->
+        <!-- Left side: Title & Filename -->
         <div class="flex flex-col gap-2 min-w-0 max-w-full shrink-0">
           <h1
             class="flex items-center gap-2 font-extrabold text-slate-900 dark:text-white text-2xl tracking-tight transition-colors">
@@ -237,20 +275,20 @@
           <div class="flex items-center">
             <span id="current-filename"
               class="hidden bg-slate-100 dark:bg-dark-surface px-2 py-0.5 border border-slate-200 dark:border-dark-border rounded max-w-[250px] font-mono font-medium text-[11px] text-slate-500 dark:text-slate-400 truncate transition-colors"
-              data-i18n="filename.unsaved" data-i18n-title="title.current_file" title="Currently open file">Unsaved.people</span>
+              data-i18n-title="title.current_file" title="Currently open file">Unsaved.people</span>
           </div>
         </div>
 
-        <!-- 右側：各種コントロール群 -->
+        <!-- Right side: Various control groups -->
         <div class="flex flex-wrap justify-start lg:justify-end items-center gap-2 sm:gap-3 w-full lg:w-auto">
-          <!-- インストールボタン (PWA) -->
+          <!-- Install Button (PWA) -->
           <button id="install-button"
             class="hidden bg-primary hover:bg-primary-hover shadow-sm px-4 py-2 rounded-md font-bold text-white text-sm transition-all shrink-0" data-i18n="btn.install">
             ↓ Install App
           </button>
 
 
-          <!-- 暗号化パスワード入力 -->
+          <!-- Encryption Password Input -->
           <form onsubmit="event.preventDefault();" class="relative flex items-center">
             <input type="text" autocomplete="username" class="sr-only" value="local-user" tabindex="-1">
             <label for="file-password" class="sr-only">暗号化パスワード</label>
@@ -282,14 +320,14 @@
             <svg class="w-4 h-4 transition-all duration-300">
               <use href="#icon-save"></use>
             </svg>
-            <!-- 未保存バッジ -->
+            <!-- Unsaved Badge -->
             <span id="dirty-badge" class="hidden -top-1 -right-1 absolute w-3 h-3">
               <span class="inline-flex relative bg-orange-500 shadow-[0_0_8px_var(--color-orange-500)] border-2 border-white dark:border-dark-surface rounded-full w-3 h-3">
               </span>
             </span>
           </button>
 
-          <!-- コマンドパレット呼び出しボタン -->
+          <!-- Command Palette Invoke Button -->
           <button onclick="toggleCommandPalette()"
             class="flex items-center gap-2 bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md font-medium text-slate-600 hover:text-slate-900 dark:hover:text-white dark:text-slate-400 text-sm transition-colors cursor-pointer shrink-0"
             data-i18n-title="title.cmd" title="Open Command Palette">
@@ -300,7 +338,7 @@
               class="px-1 border border-slate-300 dark:border-dark-border rounded font-mono text-xs transition-colors">⌘K</span>
           </button>
 
-          <!-- 設定ドロップダウン -->
+          <!-- Settings Dropdown -->
           <div class="relative">
             <button id="settings-menu-btn" onclick="toggleSettingsMenu(event)"
               class="bg-white hover:bg-slate-100 dark:hover:bg-dark-surface-hover dark:bg-dark-surface shadow-sm px-3 py-2 border border-slate-200 dark:border-dark-border rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white dark:text-slate-400 text-sm transition-all cursor-pointer shrink-0"
@@ -309,14 +347,14 @@
                 <use href="#icon-cog"></use>
               </svg>
             </button>
-            <!-- 設定ドロップダウン -->
+            <!-- Settings Dropdown -->
             <div id="settings-dropdown" class="hidden absolute right-0 mt-2 w-60 bg-white/95 dark:bg-dark-surface/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 dark:border-dark-border/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5 dark:ring-white/10">
               <div class="p-1.5 flex flex-col gap-0.5">
 
-                <!-- ダークモードトグル -->
+                <!-- Dark Mode Toggle -->
                 <button id="theme-toggle" onclick="toggleDarkMode(); closeSettingsMenu();" class="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors cursor-pointer group outline-none">
                   <div class="flex items-center gap-2.5 flex-1 min-w-0">
-                    <!-- アイコンコンテナ -->
+                    <!-- Icon Container -->
                     <div class="flex items-center justify-center w-6 h-6 rounded bg-transparent transition-colors shrink-0">
                       <svg id="theme-icon-light" class="hidden dark:block w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-sun"></use></svg>
                       <svg id="theme-icon-dark" class="dark:hidden block w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-moon"></use></svg>
@@ -324,7 +362,7 @@
                     <span class="dark:hidden truncate" data-i18n="menu.dark_mode">Dark Mode</span>
                     <span class="hidden dark:block truncate" data-i18n="menu.light_mode">Light Mode</span>
                   </div>
-                  <!-- トグルスイッチUI -->
+                  <!-- Toggle Switch UI -->
                   <div class="relative inline-flex h-4 w-7 items-center rounded-full bg-slate-200 dark:bg-indigo-500 transition-colors shadow-inner shrink-0">
                     <span class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform translate-x-0.5 dark:translate-x-3.5 shadow-sm border border-slate-200/50 dark:border-transparent"></span>
                   </div>
@@ -332,24 +370,24 @@
 
                 <div class="h-px bg-slate-100 dark:bg-dark-border my-1 mx-2"></div>
 
-                <!-- 言語選択 -->
+                <!-- Language Selection -->
                 <label class="relative flex items-center px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover transition-colors cursor-pointer group outline-none">
                   <div class="flex items-center justify-center w-6 h-6 mr-2.5 rounded bg-transparent transition-colors shrink-0 pointer-events-none">
                     <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-language"></use></svg>
                   </div>
                   <span class="sr-only" data-i18n="aria.select_lang">Select Language</span>
-                  <!-- セレクトボックス (appearance-noneでネイティブ矢印を隠し文字被りを解消) -->
+                  <!-- Select box (appearance-none hides native arrow to resolve text overlap) -->
                   <div class="flex items-center relative flex-1 min-w-0">
                     <select id="lang-select" onchange="changeLanguage(this.value); closeSettingsMenu();" class="appearance-none bg-transparent pr-5 py-1 w-full text-base sm:text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-primary outline-none cursor-pointer truncate" data-i18n-title="title.select_lang" title="Switch Language">
                       <option value="ja">日本語</option>
                       <option value="en">English</option>
                     </select>
-                    <!-- カスタム矢印アイコン -->
+                    <!-- Custom arrow icon -->
                     <svg class="w-3.5 h-3.5 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-primary transition-colors"><use href="#icon-chevron-down"></use></svg>
                   </div>
                 </label>
 
-                <!-- サジェスト辞書選択 -->
+                <!-- Suggest Dictionary Selection -->
                 <label class="relative flex items-center px-2.5 py-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover transition-colors cursor-pointer group outline-none">
                   <div class="flex items-center justify-center w-6 h-6 mr-2.5 rounded bg-transparent transition-colors shrink-0 pointer-events-none">
                     <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary transition-colors"><use href="#icon-academic-cap"></use></svg>
@@ -366,7 +404,7 @@
                   </div>
                 </label>
 
-                <!-- 先ほど追加したカスタム辞書編集ボタン -->
+                <!-- Custom dictionary edit button added earlier -->
                 <button onclick="showRoleDictEditor(); closeSettingsMenu();" class="w-full flex items-center justify-between px-2.5 py-2 mt-0.5 rounded-lg hover:bg-slate-100 dark:hover:bg-dark-surface-hover text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm font-medium transition-colors cursor-pointer group outline-none">
                   <div class="flex items-center gap-2.5 flex-1 min-w-0">
                     <div class="flex items-center justify-center w-6 h-6 rounded bg-transparent transition-colors shrink-0">
@@ -380,13 +418,13 @@
             </div>
           </div>
 
-          <!-- 隠しインプット (コマンドパレットから叩く用) -->
+          <!-- Hidden input (for triggering from command palette) -->
           <input type="file" id="csv-input" accept=".csv" class="hidden" onchange="importCSV(event)">
           <input type="file" id="vcf-input" accept=".vcf" class="hidden" onchange="handleVCFInput(event)">
         </div>
       </header>
 
-      <!-- DBステータス -->
+      <!-- DB Status -->
       <div class="fixed top-4 sm:top-8 inset-x-0 z-50 flex justify-center pointer-events-none">
         <div id="status"
           class="flex w-max items-center gap-2 bg-slate-800/90 opacity-100 shadow-xl backdrop-blur-sm px-5 py-2.5 border border-slate-700/50 rounded-full font-medium text-white text-xs transition-all translate-y-0 duration-500 pointer-events-auto">
@@ -400,13 +438,13 @@
         </div>
       </div>
 
-      <!-- アプリUI -->
+      <!-- App UI -->
       <div id="app-ui" class="hidden">
-        <!-- 総合計人数 & カテゴリフィルター (Sticky + Backdrop Blur) -->
+        <!-- Total headcount & Category filter (Sticky + Backdrop Blur) -->
         <div
           class="top-0 z-40 sm:sticky flex flex-col gap-4 bg-white/70 dark:bg-dark-bg/80 backdrop-blur-2xl -mx-6 mb-8 px-6 pt-6 pb-4 border-slate-200/50 dark:border-dark-border/50 border-b transition-colors">
 
-          <!-- 上段: 合計人数とエクスポートボタン -->
+          <!-- Top row: Total headcount and export buttons -->
           <div class="flex justify-between items-end gap-4">
             <div class="min-w-0 text-right">
               <p id="grand-total-label"
@@ -419,7 +457,7 @@
               </p>
             </div>
 
-            <!-- 現在の表示状態を全件エクスポートするボタン -->
+            <!-- Button to export all items in current display state -->
             <button onclick="exportVCard()"
               class="hidden sm:flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 shadow-md px-4 py-2 rounded-lg font-bold text-white dark:text-slate-900 text-sm active:scale-95 transition-all shrink-0">
               <svg class="w-4 h-4">
@@ -429,22 +467,22 @@
             </button>
           </div>
 
-          <!-- 下段: カテゴリ（タグ）フィルター -->
+          <!-- Bottom row: Category (Tag) Filter -->
           <div class="relative w-full overflow-hidden">
 
             <div id="category-filters"
               class="z-0 relative flex items-center gap-2 -mb-2 pb-2 overflow-x-auto snap-x scrollbar-hide" style="touch-action: auto;">
-              <!-- JSで動的にタグ一覧が生成されます -->
+              <!-- Tag list is dynamically generated by JS -->
               <button onclick="setCategoryFilter(null)" id="filter-btn-all"
                 class="bg-slate-800 hover:bg-slate-700 shadow-sm px-4 py-1.5 border border-slate-800 rounded-full font-bold text-white text-xs transition-colors snap-start shrink-0" data-i18n="filter.all">
                 Show All
               </button>
-              <!-- 例: <button class="...">#ビジネス (12)</button> -->
+              <!-- Example: <button class="...">#Business (12)</button> -->
             </div>
           </div>
         </div>
 
-        <!-- トップレベルのブロック追加UI -->
+        <!-- Top-level Block Add UI -->
         <form onsubmit="event.preventDefault(); addBlock();" class="group relative mb-4">
           <div class="left-0 absolute inset-y-0 flex items-center pointer-events-none">
             <span class="pl-2 font-light text-slate-400 group-hover:text-primary text-3xl transition-colors">+</span>
@@ -456,7 +494,7 @@
           <button type="submit" class="hidden" data-i18n="btn.add">Add</button>
         </form>
 
-        <!-- 展開・折りたたみコントロール (データがない時は非表示) -->
+        <!-- Expand/Collapse controls (hidden when no data) -->
         <div id="block-controls" class="hidden justify-end items-center gap-4 mb-6 pr-2">
           <button onclick="toggleAllBlocks(false)"
             class="flex items-center gap-1 focus:outline-none font-bold text-[11px] text-slate-400 hover:text-slate-700 focus:text-primary transition-colors cursor-pointer">
@@ -474,16 +512,15 @@
           </button>
         </div>
 
-        <!-- ブロックがレンダリングされるコンテナ -->
+        <!-- Container where blocks are rendered -->
         <div id="blocks-container" class="space-y-6"></div>
       </div>
 
-      <!-- 致命的エラー画面 (起動失敗時フェイルセーフ) -->
+      <!-- Fatal Error Screen (Fail-safe on Startup Failure) -->
       <div id="fatal-error-screen" class="hidden z-50 flex-col justify-center items-center px-6 py-20 text-center">
         <div class="drop-shadow-sm mb-4 text-6xl">💥</div>
         <h2 class="mb-2 font-extrabold text-slate-900 text-2xl" data-i18n="error.fatal">Failed to start application</h2>
-        <p class="mb-6 max-w-md text-slate-600 text-sm leading-relaxed" data-i18n="error.fatal_desc">Required files could not be loaded.<br>Please check your network and reload the page.
-        </p>
+        <p class="mb-6 max-w-md text-slate-600 text-sm leading-relaxed" data-i18n-html="error.fatal_desc">Required files could not be loaded.<br>Please check your network and reload the page.</p>
         <button onclick="location.reload()"
           class="bg-slate-900 hover:bg-slate-800 shadow-md px-6 py-3 rounded-lg font-bold text-white active:scale-95 transition-all" data-i18n="btn.reload">Reload Page</button>
       </div>
@@ -491,12 +528,15 @@
       <!-- Global Footer Placeholder -->
       <div id="grind-global-footer" class="mt-16 w-full opacity-80 hover:opacity-100 transition-opacity"></div>
 
-      <!-- 右側の余白（メインコンテンツを画面中央に維持するためのダミー） -->
+      <!-- Right margin (dummy to keep main content centered) -->
       <div class="hidden xl:block w-56 shrink-0"></div>
-    </div>
+    </main>
   </div>
+  <!-- Global layout wrapper ends here -->
 
-    <!-- CSVマッピングモーダル -->
+  <!-- 💡 To prevent z-index Stacking Context bugs, all modals are placed outside the global wrapper (directly under body) -->
+
+    <!-- CSV Mapping Modal -->
     <div id="csv-mapping-modal" onclick="closeCSVModal()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
@@ -572,7 +612,7 @@
       </div>
     </div>
 
-    <!-- エクスポートモーダル -->
+    <!-- Export Modal -->
     <div id="export-modal" onclick="closeExportModal()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
@@ -585,7 +625,7 @@
         <div class="space-y-4 px-6 py-6">
           <p class="text-slate-600 text-sm" data-i18n="export.desc">Select output format.</p>
 
-          <!-- エクスポート対象期間の表示 -->
+          <!-- Display of export target period -->
           <div id="export-period-info"
             class="bg-blue-50 px-3 py-2.5 border border-blue-200 rounded-md font-medium text-blue-700 text-xs"></div>
 
@@ -610,7 +650,7 @@
       </div>
     </div>
 
-    <!-- カスタム科目辞書編集モーダル -->
+    <!-- Custom Subject Dictionary Edit Modal -->
     <div id="role-dict-editor-modal" onclick="closeRoleDictEditor()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
@@ -623,7 +663,7 @@
         </div>
         <div class="space-y-4 px-6 py-6 overflow-y-auto">
           <div class="flex flex-col gap-3">
-            <p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed" data-i18n="dict_edit.desc">Register and reorder frequently used roles/titles.<br>Click the eye icon to hide from suggestions.</p>
+            <p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed" data-i18n-html="dict_edit.desc">Register and reorder frequently used roles/titles.<br>Click the eye icon to hide from suggestions.</p>
             <div class="flex items-center gap-2">
               <button type="button" onclick="setAllCustomRolesHidden(false)"
                 class="bg-primary/10 hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30 px-2.5 py-1.5 rounded-md font-bold text-[11px] text-primary transition-colors flex items-center gap-1.5">
@@ -638,7 +678,7 @@
             </div>
           </div>
           <ul id="custom-dict-list" class="space-y-2">
-            <!-- JSで動的に生成 -->
+            <!-- Dynamically generated by JS -->
           </ul>
         </div>
         <div class="px-6 py-4 border-slate-100 border-t shrink-0">
@@ -660,7 +700,7 @@
       </div>
     </div>
 
-    <!-- 連絡先詳細編集モーダル -->
+    <!-- Contact Detail Edit Modal -->
     <div id="contact-detail-modal" onclick="closeContactDetail()"
       class="hidden z-[100] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div onclick="event.stopPropagation()"
@@ -678,16 +718,16 @@
         </div>
         <div class="flex-1 space-y-5 px-6 py-5 overflow-y-auto">
           <input type="hidden" id="detail-record-id">
-          <!-- 基本情報 -->
+          <!-- Basic Info -->
           <div>
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.basic">Basic Info
             </h4>
             <div class="gap-2 grid grid-cols-2">
-              <div><label for="detail-family-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_name">Last Name</label><input type="text"
+              <div><label for="detail-family-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.family_name">Last Name</label><input autocomplete="off" type="text"
                   id="detail-family-name" data-i18n-placeholder="placeholder.family_name" placeholder="Smith"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
-              <div><label for="detail-given-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_name">First Name</label><input type="text"
+              <div><label for="detail-given-name" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.given_name">First Name</label><input autocomplete="off" type="text"
                   id="detail-given-name" data-i18n-placeholder="placeholder.given_name" placeholder="John"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
@@ -701,21 +741,21 @@
               </div>
             </div>
             <div class="mt-2"><label for="detail-nickname"
-                class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.nickname">Nickname</label><input type="text"
+                class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.nickname">Nickname</label><input autocomplete="off" type="text"
                 id="detail-nickname" data-i18n-placeholder="placeholder.nickname" placeholder="Bobby, etc."
                 class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
             </div>
           </div>
-          <!-- 組織 -->
+          <!-- Organization -->
           <div>
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.org">Organization</h4>
             <div class="space-y-2">
-              <div><label for="detail-company" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.company">Company</label><input type="text"
+              <div><label for="detail-company" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.company">Company</label><input autocomplete="off" type="text"
                   id="detail-company" data-i18n-placeholder="placeholder.company" placeholder="Acme Inc."
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
               <div class="gap-2 grid grid-cols-2">
-                <div><label for="detail-department" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.department">Department</label><input type="text"
+                <div><label for="detail-department" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.department">Department</label><input autocomplete="off" type="text"
                     id="detail-department" data-i18n-placeholder="placeholder.department" placeholder="Sales Dept."
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
                 </div>
@@ -731,7 +771,7 @@
               </div>
             </div>
           </div>
-          <!-- 電話番号 -->
+          <!-- Phone Number -->
           <div>
             <div class="flex justify-between items-center mb-2">
               <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.phone">Phone Numbers</h4>
@@ -740,7 +780,7 @@
             </div>
             <div id="detail-phones" class="space-y-2"></div>
           </div>
-          <!-- メール -->
+          <!-- Email -->
           <div>
             <div class="flex justify-between items-center mb-2">
               <h4 class="font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.email">Email Addresses
@@ -750,7 +790,7 @@
             </div>
             <div id="detail-emails" class="space-y-2"></div>
           </div>
-          <!-- 住所 -->
+          <!-- Address -->
           <div>
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.address">Address</h4>
             <div class="space-y-2">
@@ -768,7 +808,7 @@
                   type="text" id="detail-addr-street" data-i18n-placeholder="placeholder.street" placeholder="123 Main St"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
-              <div><label for="detail-addr-country" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.country">Country</label><input type="text"
+              <div><label for="detail-addr-country" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.country">Country</label><input autocomplete="off" type="text"
                   id="detail-addr-country" data-i18n-placeholder="placeholder.country" placeholder="USA"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
@@ -779,7 +819,7 @@
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.sns">SNS / Web
             </h4>
             <div class="space-y-2">
-              <div><label for="detail-social-line" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">LINE</label><input type="text"
+              <div><label for="detail-social-line" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs">LINE</label><input autocomplete="off" type="text"
                   id="detail-social-line" data-i18n-placeholder="placeholder.line" placeholder="LINE ID or URL"
                   class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm">
               </div>
@@ -797,7 +837,7 @@
               </div>
             </div>
           </div>
-          <!-- その他 -->
+          <!-- Other -->
           <div>
             <h4 class="mb-2 font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-widest" data-i18n="detail.other">Other</h4>
             <div class="space-y-2">
@@ -825,7 +865,7 @@
       </div>
     </div>
 
-    <!-- パスワード入力モーダル (prompt代替) -->
+    <!-- Password Input Modal (prompt alternative) -->
     <div id="password-prompt-modal"
       class="hidden z-[200] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div
@@ -855,7 +895,7 @@
       </div>
     </div>
 
-    <!-- 汎用ダイアログモーダル -->
+    <!-- Generic Dialog Modal -->
     <div id="generic-dialog-modal"
       class="hidden z-[200] fixed inset-0 justify-center items-center bg-black/50 backdrop-blur-sm p-4">
       <div
@@ -865,7 +905,7 @@
         </div>
         <div class="space-y-4 px-6 py-6">
           <p id="generic-dialog-message" class="text-slate-600 text-sm whitespace-pre-wrap leading-relaxed"></p>
-          <input type="text" id="generic-dialog-input"
+          <input autocomplete="off" type="text" id="generic-dialog-input"
             class="hidden bg-slate-50 dark:bg-dark-surface-hover px-4 py-2 border border-slate-200 dark:border-dark-border focus:border-primary rounded-md outline-none w-full text-slate-900 dark:text-white text-base">
         </div>
         <div
@@ -878,8 +918,8 @@
       </div>
     </div>
 
-    <!-- ドラッグ＆ドロップ オーバーレイ -->
-    <div id="drop-overlay" onclick="this.classList.add('hidden'); this.classList.remove('flex'); dragCounter = 0;"
+    <!-- Drag and Drop Overlay -->
+    <div id="drop-overlay" onclick="hideDropOverlay()"
       class="hidden z-[200] fixed inset-0 justify-center items-center bg-slate-900/60 backdrop-blur-md border-[6px] border-primary border-dashed transition-opacity cursor-pointer">
       <div class="text-center pointer-events-none">
         <svg class="mx-auto mb-4 w-16 h-16 text-primary">
@@ -893,7 +933,7 @@
 
     <div id="cmd-palette" onclick="toggleCommandPalette()"
       class="hidden z-[100] fixed inset-0 justify-center items-start bg-black/20 dark:bg-black/50 backdrop-blur-sm p-4 pt-4 md:pt-[15vh] transition-opacity animate-modal-overlay">
-      <!-- Raycastスタイルのモーダル -->
+      <!-- Raycast-style Modal -->
       <div onclick="event.stopPropagation()"
         class="flex flex-col bg-white/80 dark:bg-dark-surface/90 shadow-2xl backdrop-blur-3xl dark:ring-dark-border rounded-xl ring-1 ring-slate-200 w-full max-w-2xl overflow-hidden transition-all animate-modal-in">
         <div class="relative flex items-center gap-3 p-4 border-slate-200/50 dark:border-dark-border/50 border-b">
@@ -901,7 +941,7 @@
           <span class="text-slate-500 dark:text-slate-400"><svg class="w-5 h-5">
               <use href="#icon-search"></use>
             </svg></span>
-          <input type="search" id="cmd-input" data-i18n-placeholder="cmd.placeholder" placeholder="Run command, or search by name..."
+          <input autocomplete="off" type="search" id="cmd-input" data-i18n-placeholder="cmd.placeholder" placeholder="Run command, or search by name..."
             class="bg-transparent outline-none w-full font-sans font-medium text-slate-900 dark:text-white text-xl placeholder-slate-400">
           <span
             class="right-4 absolute bg-slate-100 dark:bg-dark-bg px-2 py-1 rounded font-mono text-[10px] text-slate-400">ESC</span>
@@ -910,16 +950,16 @@
       </div>
     </div>
 
-    <!-- オートコンプリート用のデータリスト (JSで中身を動的生成) -->
+    <!-- Datalist for autocomplete (content dynamically generated via JS) -->
     <datalist id="role-suggestions"></datalist>
     <datalist id="memo-suggestions"></datalist>
     <datalist id="tag-suggestions"></datalist>
 
-    <!-- JavaScriptを外部ファイルとして読み込む -->
+    <!-- Load JavaScript as external file -->
     <script src="i18n.js" defer></script>
     <script src="main.js" defer></script>
     <script>
-      // PWAのためのService Workerを登録
+      // Register Service Worker for PWA
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('sw.js').then(registration => {
@@ -928,20 +968,20 @@
             console.log('ServiceWorker registration failed: ', err);
           });
 
-          // 💡 sw.js側で self.skipWaiting() が呼ばれ、コントロールが切り替わった瞬間に発火する
+          // 💡 Fires the moment self.skipWaiting() is called on the sw.js side and control switches
           let refreshing = false;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (!refreshing) {
               refreshing = true;
               if (window.statusTimeoutId) clearTimeout(window.statusTimeoutId);
-              // 強制リロードをやめ、ステータスバーで通知しユーザーのクリックを待つ
+              // Stop forced reload, notify via status bar and wait for user click
               const statusEl = document.getElementById("status");
               if (statusEl) {
                 statusEl.innerHTML = `
                   <span class="text-blue-400">✨</span>
                   ${window._t('update.ready')}
                   <button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">${window._t('update.apply')}</button>
-                  <button onclick="this.parentElement.style.opacity='0'; setTimeout(()=>this.parentElement.style.display='none', 500);" class="ml-3 text-slate-400 hover:text-white">&times;</button>
+                  <button onclick="this.parentElement.classList.remove('opacity-100', 'translate-y-0'); this.parentElement.classList.add('opacity-0', '-translate-y-4'); this.parentElement.style.pointerEvents='none';" class="ml-3 text-slate-400 hover:text-white">&times;</button>
                 `;
                 statusEl.className = "flex w-max items-center gap-2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 translate-y-0 opacity-100 pointer-events-auto";
                 statusEl.style.pointerEvents = "auto";

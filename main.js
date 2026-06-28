@@ -1,34 +1,34 @@
-let db = null; // SQLiteデータベースのインスタンス
-let SQL = null; // sql.jsのモジュール
-let fileHandle = null; // File System Access APIのファイルハンドル
-let isDirty = false; // 未保存の変更があるかどうか
+let db = null; // SQLite database instance
+let SQL = null; // sql.js module
+let fileHandle = null; // File Handle for File System Access API
+let isDirty = false; // Whether there are unsaved changes
 window.getIsDirty = () => isDirty;
-let pendingCSVData = []; // CSVパース結果の一時保存
-let pendingCSVBuffer = null; // CSVのバイナリデータ
-let currentActiveTag = null; // 現在選択中のカテゴリ（タグ）
-let currentDisplayedTotal = 0; // カウントアップ用
-let collapsedBlocks = new Set(); // 折りたたまれたブロックのIDを記憶
-let totalAnimationId = null; // アニメーションの多重起動防止用ID
-let draftTimer = null; // ドラフト自動保存用タイマー
-let statusTimeoutId = null; // ステータスバー通知のタイマーID
-let isSaving = false; // 保存処理の多重実行防止フラグ
-let lastSavedPasswordHash = ""; // パスワードのハッシュ値を保持 (平文保持の回避)
-let preDetailActiveElement = null; // 詳細モーダルを開く直前のフォーカス要素
-let originalDetailDataSnapshot = null; // 詳細モーダルの「変更なし」検知用スナップショット
+let pendingCSVData = []; // Temporary storage of CSV parse results
+let pendingCSVBuffer = null; // CSV binary data
+let currentActiveTag = null; // Currently selected category (tag)
+let currentDisplayedTotal = 0; // For count up
+let collapsedBlocks = new Set(); // Remember IDs of collapsed blocks
+let totalAnimationId = null; // ID to prevent multiple animation triggers
+let draftTimer = null; // Timer for draft autosave
+let statusTimeoutId = null; // Timer ID for status bar notification
+let isSaving = false; // Flag to prevent multiple execution of save processing
+let lastSavedPasswordHash = ""; // Retain password hash (Avoid keeping plaintext)
+let preDetailActiveElement = null; // Focused element just before opening detail modal
+let originalDetailDataSnapshot = null; // Snapshot to detect 'no changes' in Detail Modal
 
 const isMac =
   (navigator.userAgentData && navigator.userAgentData.platform === "macOS") ||
   navigator.platform.toUpperCase().indexOf("MAC") >= 0 ||
   navigator.userAgent.toUpperCase().indexOf("MAC") >= 0;
 
-let customRoleDict = []; // カスタム役職辞書の配列
+let customRoleDict = []; // Custom role dictionary array
 
-// --- スクロールロック制御 (Layout Shift対策) ---
+// --- Scroll Lock Control (Layout Shift Prevention) ---
 function lockScroll() {
   document.body.style.overflow = "hidden";
 }
 
-// SHA-256 ハッシュを計算するヘルパー関数
+// Helper function to calculate SHA-256 hash
 async function sha256(message) {
   if (typeof message !== 'string' || message.length === 0) return "";
   const msgBuffer = new TextEncoder().encode(message);
@@ -42,7 +42,7 @@ function unlockScroll() {
   document.body.style.overflow = "";
 }
 
-// --- 画面背面のUIを完全にロックするヘルパー ---
+// --- Helper to completely lock background UI ---
 function toggleMainUI(disabled) {
   const els = [
     document.getElementById("app-ui"),
@@ -57,7 +57,7 @@ function toggleMainUI(disabled) {
   });
 }
 
-// --- ダークモード管理 ---
+// --- Dark Mode Management ---
 function initDarkMode() {
   const saved = localStorage.getItem("theme");
   if (
@@ -95,7 +95,7 @@ function updateMetaThemeColor(isDark) {
   }
 }
 
-// ページロード時にダークモードを即座に適用（FOUC防止）
+// Apply dark mode immediately on page load (Prevent FOUC)
 initDarkMode();
 
 window
@@ -108,7 +108,7 @@ window
     }
   });
 
-// --- 設定ドロップダウンメニュー管理 ---
+// --- Settings Dropdown Menu Management ---
 window.toggleSettingsMenu = function (event) {
   if (event) event.stopPropagation();
   const menu = document.getElementById("settings-dropdown");
@@ -130,7 +130,7 @@ document.addEventListener("click", (event) => {
   }
 });
 
-// --- 設定保存用ユーティリティ (SQLiteベース) ---
+// --- Settings Save Utility (SQLite based) ---
 function getDbSetting(key, defaultValue = null) {
   if (!db) return defaultValue;
   let stmt;
@@ -161,7 +161,7 @@ function setDbSetting(key, value, markDirty = true) {
   }
 }
 
-// --- 自動バックアップ (IndexedDB) ロジック ---
+// --- Auto Backup (IndexedDB) Logic ---
 const DB_NAME = "GrindPeopleDB";
 const STORE_NAME = "drafts";
 
@@ -220,7 +220,7 @@ async function clearDraft() {
   }
 }
 
-// 未保存状態（isDirty）のセットとUIバッジの更新
+// Set unsaved state (isDirty) and update UI badge
 function setDirty(state) {
   isDirty = state;
   const badge = document.getElementById("dirty-badge");
@@ -234,9 +234,9 @@ function setDirty(state) {
     }
   }
 
-  // タブのタイトルとファイル名バッジの反映
+  // Reflect tab title and filename badge
   const fileName =
-    fileHandle && fileHandle.name ? fileHandle.name : "Unsaved.people";
+    fileHandle && fileHandle.name ? fileHandle.name : window._t('filename.unsaved');
   const titleBase = `${fileName} - People`;
   document.title = state ? `* ${titleBase}` : titleBase;
   const filenameBadge = document.getElementById("current-filename");
@@ -245,14 +245,14 @@ function setDirty(state) {
     filenameBadge.classList.remove("hidden");
   }
 
-  // 自動バックアップの実行 (10秒デバウンス: 入力が落ち着いたタイミングで実行し、db.export() によるタイピング中のフリーズを防止)
+  // Execute auto-backup (30-second debounce: executed when typing settles to prevent freezing during typing by db.export())
   if (state && db) {
     if (draftTimer) {
       clearTimeout(draftTimer);
     }
     draftTimer = setTimeout(async () => {
       try {
-        if (!isDirty || isSaving) return; // 【追加】手動保存中 (isSaving) ならオートセーブを中止する
+        if (!isDirty || isSaving) return; // [Add] Abort autosave if manual save (isSaving) is in progress
 
         let data = db.export();
         const password = document.getElementById("file-password").value;
@@ -260,23 +260,23 @@ function setDirty(state) {
           data = await encryptData(data, password);
         }
 
-        if (!isDirty) return; // 【追加】非同期処理中に手動保存された場合は破棄する
+        if (!isDirty) return; // [Add] Discard if manually saved during asynchronous processing
 
         await saveDraft(data);
 
-        // 【Gold-Rank Polish】オートセーブ完了のマイクロインタラクション
+        // [Gold-Rank Polish] Micro-interaction on auto-save completion
         const badge = document.getElementById("dirty-badge");
         if (badge) {
           const dot = badge.querySelector("span");
           if (dot) {
-            // 一瞬だけ緑色にして安心感を与える
+            // Briefly flash green to provide a sense of security
             dot.classList.replace("bg-orange-500", "bg-green-400");
             dot.classList.replace(
               "shadow-[0_0_8px_var(--color-orange-500)]",
               "shadow-[0_0_8px_var(--color-green-400)]",
             );
             setTimeout(() => {
-              // その後フワッと消す
+              // Fade out afterwards
               badge.classList.add("hidden");
               badge.classList.remove("flex");
               dot.classList.replace("bg-green-400", "bg-orange-500");
@@ -292,19 +292,19 @@ function setDirty(state) {
         // Show a warning toast if backup fails due to quota limit
         showToast("Backup failed. Check device storage.", "⚠️", "warning");
       } finally {
-        draftTimer = null; // 保存完了後にタイマーを解放
+        draftTimer = null; // Release timer after save completion
       }
-    }, 30000); // 10秒から30秒に延長し、タイピング中のブロッキングを軽減
+    }, 30000); // Extended from 10 to 30 seconds to reduce blocking during typing
   } else if (!state) {
     if (draftTimer) {
       clearTimeout(draftTimer);
       draftTimer = null;
     }
-    // clearDraft()は呼ばず、IndexedDBにスナップショットを残し続ける
+    // Keep retaining snapshot in IndexedDB without calling clearDraft()
   }
 }
 
-// --- 共通ユーティリティ ---
+// --- Common Utilities ---
 window.focusAndSelectAll = function (el) {
   if (!el) return;
   el.focus();
@@ -323,9 +323,22 @@ window.focusAndSelectAll = function (el) {
 };
 
 function extractRecordTags(memoStr, fieldTagsStr) {
-  const memoTags = ((memoStr || "").match(/[#＃][^\s　,、。\.・()（）「」#＃]+/g) || []).map(t => t.replace(/^[#＃]/, ""));
-  const fieldTags = (fieldTagsStr || "").split(/[,、\s]+/).map(t => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
+  // 💡 Prevent crash when SQLite passes a numeric value
+  const safeMemo = String(memoStr || "");
+  const safeTags = String(fieldTagsStr || "");
+  
+  const memoTags = (safeMemo.match(/[#＃][^\s　,、。\.・()（）「」#＃]+/g) || []).map(t => t.replace(/^[#＃]/, ""));
+  const fieldTags = safeTags.split(/[,、\s]+/).map(t => t.trim().replace(/^[#＃]/, "")).filter(Boolean);
   return [...new Set([...memoTags, ...fieldTags])];
+}
+
+function getMergedTags(memo, itemTags, org, orgTags) {
+  return [
+    ...new Set([
+      ...extractRecordTags(memo, itemTags),
+      ...extractRecordTags(org, orgTags)
+    ]),
+  ];
 }
 
 function escapeHtml(unsafe) {
@@ -354,7 +367,7 @@ function getLocalTimeFormatted(date = new Date(), format = "default") {
   return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
 }
 
-// セキュアなパスワード入力プロンプト (Promiseラッパー)
+// Secure password input prompt (Promise wrapper)
 function requestPasswordPrompt(message) {
   return new Promise((resolve) => {
     const modal = document.getElementById("password-prompt-modal");
@@ -374,7 +387,7 @@ function requestPasswordPrompt(message) {
     const cleanup = () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
-      // 他のモーダルやパレットが開いている場合は背景ロック解除をスキップ
+      // Skip unlocking background if other modals or palettes are open
       if (
         !isCommandPaletteOpen &&
         document.getElementById("csv-mapping-modal").classList.contains("hidden") &&
@@ -391,12 +404,12 @@ function requestPasswordPrompt(message) {
     };
     const onSubmit = () => {
       const pwd = input.value;
-      input.value = ""; // DOMからパスワードを消去
+      input.value = ""; // Erase password from DOM
       cleanup();
       resolve(pwd);
     };
     const onCancel = () => {
-      input.value = ""; // DOMからパスワードを消去
+      input.value = ""; // Erase password from DOM
       cleanup();
       resolve(null);
     };
@@ -413,7 +426,7 @@ function requestPasswordPrompt(message) {
   });
 }
 
-// セキュアな汎用プロンプト・確認・通知ダイアログ (ネイティブ prompt/confirm/alert の代替)
+// Secure generic prompt/confirm/notification dialogs (Alternative to native prompt/confirm/alert)
 window.requestCustomPrompt = function (
   title,
   message,
@@ -431,7 +444,7 @@ window.requestCustomPrompt = function (
     titleEl.textContent = title;
     msgEl.innerHTML = escapeHtml(message).replace(/\n/g, "<br>");
 
-    // モードに応じたUI切り替え
+    // UI toggle based on mode
     if (mode === "prompt") {
       input.classList.remove("hidden");
       input.value = defaultValue;
@@ -441,7 +454,7 @@ window.requestCustomPrompt = function (
       btnCancel.classList.remove("hidden");
     } else if (mode === "alert") {
       input.classList.add("hidden");
-      btnCancel.classList.add("hidden"); // アラート時はキャンセルボタンを隠す
+      btnCancel.classList.add("hidden"); // Hide cancel button during alerts
     }
 
     modal.classList.remove("hidden");
@@ -461,7 +474,7 @@ window.requestCustomPrompt = function (
     const cleanup = () => {
       modal.classList.add("hidden");
       modal.classList.remove("flex");
-      // 他のモーダルやパレットが開いている場合は背景ロック解除をスキップ
+      // Skip unlocking background if other modals or palettes are open
       if (
         !isCommandPaletteOpen &&
         document.getElementById("csv-mapping-modal").classList.contains("hidden") &&
@@ -472,6 +485,13 @@ window.requestCustomPrompt = function (
         toggleMainUI(false);
         unlockScroll();
       }
+
+      // Add event listener cleanup
+      btnSubmit.onclick = null;
+      btnCancel.onclick = null;
+      input.onkeydown = null;
+      btnSubmit.onkeydown = null;
+      btnCancel.onkeydown = null;
     };
 
     btnSubmit.onclick = () => {
@@ -506,15 +526,17 @@ function handlePlainTextPaste(event) {
   );
   let cleanText = text.replace(/[\r\n\t]+/g, " ").trim();
 
-  // 気を利かせて自動整形する (TEL: などのプレフィックスを除去)
+  // Automatically format cleverly (Remove prefixes like TEL:)
   if (event.target.getAttribute("data-field") === "contact_info") {
     cleanText = cleanText
       .replace(/^(TEL|FAX|Email|Mail|E-mail|電話)[\s:：]*/i, "")
-      .replace(/\s+/g, "");
+      .trim(); // Keep intentional internal spaces (e.g., " / ")
   }
 
   let success = false;
   try {
+    // 💡 Note: execCommand is deprecated, but it's the optimal solution to preserve Undo (Ctrl+Z) history.
+    // If deprecated in future browsers, the Selection API fallback after catch below will be executed.
     success = document.execCommand("insertText", false, cleanText);
   } catch (e) {}
 
@@ -535,82 +557,67 @@ function handlePlainTextPaste(event) {
   }
 }
 
-// --- 新機能: Smart Paste (署名スマート解析) ---
+// --- Feature: Smart Paste (Signature Parser) ---
+function parseSignatureData(text) {
+  const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+  const phoneMatch = text.match(/(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i);
+
+  if (!emailMatch && !phoneMatch) return null;
+
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  let name = lines[0] || "";
+  let email = emailMatch ? emailMatch[1] : "";
+  let phone = phoneMatch ? phoneMatch[1] : "";
+
+  if (name.includes(":") || name.includes("：")) {
+    name = name.split(/[:：]/)[1].trim();
+  }
+
+  let contactInfo = email;
+  if (phone && !email) contactInfo = phone;
+  else if (phone && email) contactInfo = `${email} / ${phone}`;
+
+  let role = "";
+  // Unified keyword list
+  const roleKeywords = ["部", "長", "課", "班", "代表", "役員", "CEO", "CTO", "Manager", "Director", "Lead", "担当"];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line !== name && !line.includes(email) && !line.includes(phone)) {
+      if (roleKeywords.some((kw) => line.includes(kw))) {
+        role = line;
+        break;
+      }
+    }
+  }
+
+  return { name, contactInfo, role };
+}
+
 function handleSmartPaste(event) {
   const text = (event.clipboardData || window.clipboardData).getData(
     "text/plain",
   );
-  if (!text || !text.includes("\n")) return; // 複数行でない場合は通常のペースト処理に任せる
+  if (!text || !text.includes("\n")) return; // Fallback to normal paste processing if not multiple lines
 
   // Bypass smart parsing for vCard data and let the global vCard importer handle it
   if (text.toUpperCase().includes("BEGIN:VCARD") && text.toUpperCase().includes("END:VCARD")) {
     return;
   }
 
-  const emailMatch = text.match(
-    /([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
-  );
-  // 電話番号の正規表現: 括弧 () と、国際プレフィックス +、さらに内線 (ext) 等の表記にも負けない強力な抽出
-  const phoneMatch = text.match(
-    /(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i
-  );
-
-  if (emailMatch || phoneMatch) {
+  const parsed = parseSignatureData(text);
+  if (parsed) {
     event.preventDefault();
-    const lines = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    let name = lines[0] || "";
-    let email = emailMatch ? emailMatch[1] : "";
-    let phone = phoneMatch ? phoneMatch[1] : "";
-
-    // 余計な記号を除去
-    if (name.includes(":") || name.includes("：")) {
-      name = name.split(/[:：]/)[1].trim();
-    }
-
-    let contactInfo = email;
-    if (phone && !email) contactInfo = phone;
-    else if (phone && email) contactInfo = `${email} / ${phone}`;
-
-    // 役職や部署名を探すヒューリスティクス
-    let role = "";
-    const roleKeywords = [
-      "部",
-      "長",
-      "課",
-      "班",
-      "代表",
-      "役員",
-      "CEO",
-      "CTO",
-      "Manager",
-      "Director",
-      "Lead",
-    ];
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (line !== name && !line.includes(email) && !line.includes(phone)) {
-        if (roleKeywords.some((kw) => line.includes(kw))) {
-          role = line;
-          break;
-        }
-      }
-    }
-
     const form = event.target.closest("form");
     if (form) {
       const memoInput = form.querySelector(".item-memo");
       const contactInput = form.querySelector(".item-contact");
       const roleInput = form.querySelector(".item-role");
 
-      if (memoInput) memoInput.value = name;
-      if (contactInput) contactInput.value = contactInfo;
-      if (roleInput && role && !roleInput.value) roleInput.value = role;
+      if (memoInput) memoInput.value = parsed.name;
+      if (contactInput) contactInput.value = parsed.contactInfo;
+      if (roleInput && parsed.role && !roleInput.value) roleInput.value = parsed.role;
 
-      // ★ 解析完了後、自動でエンターキーを押した状態（一括登録）にする
+      // ★ Automatically submit (press Enter) after parsing is complete
       setTimeout(() => {
         form.requestSubmit();
         showToast(window._t("toast.smart_paste"), "✨");
@@ -619,7 +626,7 @@ function handleSmartPaste(event) {
   }
 }
 
-// --- 新機能: グローバル・スマートペースト (画面のどこでも発動) ---
+// --- Feature: Global Smart Paste (Triggers anywhere on screen) ---
 document.addEventListener("paste", async (e) => {
   const activeEl = document.activeElement;
   const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
@@ -632,10 +639,10 @@ document.addEventListener("paste", async (e) => {
     if (!isInputFocused) {
       showToast(window._t("error.file_too_large_5"), "⚠️", "warning");
     }
-    return; // 巨大データは通常のブラウザペースト挙動に任せ、重い解析をバイパス
+    return; // Bypass heavy parsing and let normal browser paste handle massive data
   }
 
-  // 1. vCard形式データの検知 (Global: どこでペーストされても優先)
+  // 1. Detection of vCard format data (Global: prioritized wherever pasted)
   if (text.toUpperCase().includes("BEGIN:VCARD") && text.toUpperCase().includes("END:VCARD")) {
     e.preventDefault();
     const contacts = parseVCardText(text);
@@ -653,33 +660,14 @@ document.addEventListener("paste", async (e) => {
     return;
   }
 
-  // 2. 署名データ (非入力欄でのペースト時)
+  // 2. Signature data (When pasting outside input fields)
   if (!isInputFocused && text.includes("\n")) {
-    const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-    const phoneMatch = text.match(/(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i);
+    const parsed = parseSignatureData(text);
 
-    if (emailMatch || phoneMatch) {
+    if (parsed) {
       e.preventDefault();
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
-      let name = lines[0] || "";
-      let email = emailMatch ? emailMatch[1] : "";
-      let phone = phoneMatch ? phoneMatch[1] : "";
-      if (name.includes(":") || name.includes("：")) name = name.split(/[:：]/)[1].trim();
 
-      let contactInfo = email;
-      if (phone && !email) contactInfo = phone;
-      else if (phone && email) contactInfo = `${email} / ${phone}`;
-
-      let role = "";
-      const roleKeywords = ["部", "長", "課", "班", "代表", "役員", "CEO", "CTO", "Manager", "Director", "Lead", "担当"];
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (line !== name && !line.includes(email) && !line.includes(phone)) {
-          if (roleKeywords.some((kw) => line.includes(kw))) { role = line; break; }
-        }
-      }
-
-      // 最上部のブロックのIDを取得、なければルートに直接追加
+      // Get ID of topmost block, if none, add directly to root
       let parentId = null;
       if (db) {
         let stmt;
@@ -689,7 +677,7 @@ document.addEventListener("paste", async (e) => {
         } catch(e) {} finally { if (stmt) stmt.free(); }
       }
 
-      // 未分類の場合は自動的に新しいブロックを作るか、既存のブロックに追加する
+      // If uncategorized, automatically create a new block or add to an existing one
       if (!parentId && db) {
         const localTime = getLocalTimeFormatted();
         db.run("INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)", ["Pasted Contacts", null, null, localTime]);
@@ -697,7 +685,7 @@ document.addEventListener("paste", async (e) => {
       }
 
       if (parentId) {
-        insertRecord(parentId, name, contactInfo, null, role, null);
+        insertRecord(parentId, parsed.name, parsed.contactInfo, null, parsed.role, null);
         renderData(parentId);
         showToast(window._t("toast.smart_paste"), "✨");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -706,9 +694,9 @@ document.addEventListener("paste", async (e) => {
   }
 });
 
-// --- 暗号化ロジック (Web Crypto API) ---
-const MAGIC_BYTES = new TextEncoder().encode("GRINDEN2"); // 最新仕様 (60万回)
-const MAGIC_BYTES_LEGACY = new TextEncoder().encode("GRINDENC"); // 過去仕様 (10万回)
+// --- Encryption Logic (Web Crypto API) ---
+const MAGIC_BYTES = new TextEncoder().encode("GRINDEN2"); // Latest spec (600k iterations)
+const MAGIC_BYTES_LEGACY = new TextEncoder().encode("GRINDENC"); // Past spec (100k iterations)
 
 async function deriveKey(password, salt, iterations = 600000) {
   const enc = new TextEncoder();
@@ -731,7 +719,7 @@ async function deriveKey(password, salt, iterations = 600000) {
 async function encryptData(data, password) {
   const salt = window.crypto.getRandomValues(new Uint8Array(16));
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  // 新規暗号化時はOWASP推奨の60万回を使用
+  // Use OWASP-recommended 600k iterations for new encryption
   const key = await deriveKey(password, salt, 600000);
   const encrypted = await window.crypto.subtle.encrypt(
     { name: "AES-GCM", iv: iv },
@@ -757,7 +745,7 @@ async function decryptData(encryptedData, password) {
   const magicStr = new TextDecoder().decode(magic);
   const isEncryptedV2 = magicStr === "GRINDEN2";
   const isEncryptedLegacy = magicStr === "GRINDENC";
-  if (!isEncryptedV2 && !isEncryptedLegacy) return encryptedData; // 暗号化されていないファイルはそのまま返す
+  if (!isEncryptedV2 && !isEncryptedLegacy) return encryptedData; // Return unencrypted files as is
 
   const salt = encryptedData.slice(8, 24);
   const iv = encryptedData.slice(24, 36);
@@ -773,7 +761,7 @@ async function decryptData(encryptedData, password) {
       );
       return new Uint8Array(decrypted);
     } else {
-      // Legacy (10万回仕様)
+      // Legacy (100k iteration spec)
       const legacyKey = await deriveKey(password, salt, 100000);
       const decrypted = await window.crypto.subtle.decrypt(
         { name: "AES-GCM", iv: iv },
@@ -788,13 +776,13 @@ async function decryptData(encryptedData, password) {
 }
 // --------------------------------------
 
-// データベースの後方互換性（スキーマ移行）を担保する
+// Ensure database backward compatibility (schema migration)
 function migrateDatabase() {
   if (!db) return;
   try {
     const res = db.exec("PRAGMA table_info(records)");
 
-    // 安全対策: テーブル情報が取得できない場合はマイグレーションをスキップ
+    // Safety measure: Skip migration if table info cannot be retrieved
     if (!res || res.length === 0 || !res[0].values) {
       console.warn("Table info is missing or corrupted. Skipping migration.");
       return;
@@ -815,7 +803,7 @@ function migrateDatabase() {
         setDirty(true);
       }
     }
-    // テンプレート用テーブルの作成
+    // Create template table
     db.run(`
       CREATE TABLE IF NOT EXISTS templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -823,7 +811,7 @@ function migrateDatabase() {
         data TEXT
       );
     `);
-    // 設定用テーブルの作成
+    // Create settings table
     db.run(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -831,7 +819,7 @@ function migrateDatabase() {
       );
     `);
 
-    // ★ ユニバーサル連絡先フィールド用テーブル (EAV方式)
+    // ★ Universal Contact Field Table (EAV Pattern)
     db.run(`
       CREATE TABLE IF NOT EXISTS contact_fields (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -850,7 +838,7 @@ function migrateDatabase() {
       `CREATE INDEX IF NOT EXISTS idx_cf_key ON contact_fields(field_key)`,
     );
 
-    // 既存データの contact_fields への自動マイグレーション
+    // Automatic migration of existing data to contact_fields
     try {
       const migrated = getDbSetting("contact_fields_migrated");
       if (!migrated) {
@@ -866,16 +854,19 @@ function migrateDatabase() {
           );
           while (migrateStmt.step()) {
             const [id, memo, contactInfo, role] = migrateStmt.get();
-            if (contactInfo && contactInfo.trim()) {
-              const ci = contactInfo.trim();
+            // 💡 Prevent TypeError crash if saved as numeric type (Integer)
+            const safeContactInfo = contactInfo ? String(contactInfo) : "";
+            if (safeContactInfo && safeContactInfo.trim()) {
+              const ci = safeContactInfo.trim();
               if (ci.includes("@")) {
                 insertFieldStmt.run([id, "email", ci, "work", 0]);
               } else {
                 insertFieldStmt.run([id, "phone", ci, "mobile", 0]);
               }
             }
-            if (role && role.trim()) {
-              insertFieldStmt.run([id, "job_title", role.trim(), "other", 0]);
+            const safeRole = role ? String(role) : "";
+            if (safeRole && safeRole.trim()) {
+              insertFieldStmt.run([id, "job_title", safeRole.trim(), "other", 0]);
             }
           }
           db.run("COMMIT;");
@@ -892,7 +883,7 @@ function migrateDatabase() {
       console.warn("contact_fields migration skipped", e);
     }
 
-    // 🎯 Gold-Rank: 既存のlocalStorageからSQLiteへのシームレスな移行
+    // 🎯 Gold-Rank: Seamless migration from existing localStorage to SQLite
     try {
       const keysToMigrate = ["customRoleDict", "roleDict"];
       let checkStmt, insertStmt;
@@ -911,7 +902,7 @@ function migrateDatabase() {
 
             if (!exists) {
               insertStmt.run([key, oldVal]);
-              localStorage.removeItem(key); // 吸い上げ完了後、古いデータを消去
+              localStorage.removeItem(key); // Erase old data after extraction is complete
               setDirty(true);
             }
           }
@@ -928,7 +919,7 @@ function migrateDatabase() {
   }
 }
 
-// --- ユニバーサル連絡先ハブ: プラットフォームマッピング定義 ---
+// --- Universal Contact Hub: Platform Mapping Definitions ---
 const PLATFORM_MAPS = {
   google_csv: {
     "Given Name": { key: "given_name" },
@@ -998,7 +989,7 @@ const PLATFORM_MAPS = {
   },
 };
 
-// --- contact_fields CRUD ユーティリティ ---
+// --- contact_fields CRUD Utility ---
 function getContactFields(recordId) {
   if (!db) return [];
   const fields = [];
@@ -1033,11 +1024,14 @@ function setContactField(
   fieldType = "other",
   sortOrder = 0,
 ) {
-  if (!db || !fieldValue?.trim()) return;
+  // 💡 Prevent crash if unexpected types like numbers are passed
+  const safeVal = fieldValue !== null && fieldValue !== undefined ? String(fieldValue) : "";
+  if (!db || !safeVal.trim()) return;
+  
   try {
     db.run(
       "INSERT OR REPLACE INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
-      [recordId, fieldKey, fieldValue.trim(), fieldType, sortOrder],
+      [recordId, fieldKey, safeVal.trim(), fieldType, sortOrder],
     );
   } catch (e) {
     console.error("setContactField:", e);
@@ -1054,7 +1048,7 @@ function clearContactFieldsByKey(recordId, fieldKey) {
   } catch (e) {}
 }
 
-// vCardパーサー: vCardテキスト → レコード配列
+// vCard Parser: vCard text -> Record array
 function parseVCardText(text) {
   const contacts = [];
   const cards = text
@@ -1065,7 +1059,7 @@ function parseVCardText(text) {
     if (!card.match(/BEGIN:VCARD/i)) continue;
     const contact = { fields: [], displayName: "", org: "" };
 
-    // 💡 修正: フリーズ（Catastrophic Backtracking）を防ぐため、先にUnfold（行継続の結合）を行ってからシンプルな正規表現でパージする
+    // 💡 Fix: Prevent catastrophic backtracking by unfolding lines first, then purging with a simpler regex
     const unfolded = card.replace(/\r?\n[ \t]/g, "");
     const photoRemovedCard = unfolded.replace(/^PHOTO[^:\r\n]*:.*\r?\n?/gmi, "");
     const lines = photoRemovedCard.split(/\r?\n/);
@@ -1218,7 +1212,7 @@ function parseVCardText(text) {
           break;
         case "X-SOCIALPROFILE": {
           const st = params.join(",").toLowerCase();
-          if (st.includes("twitter") || st.includes("x"))
+          if (st.includes("twitter") || st.match(/(?:^|,)type=x(?:,|$)/i))
             contact.fields.push({ key: "social_x", value, type: "other" });
           else if (st.includes("facebook"))
             contact.fields.push({
@@ -1254,7 +1248,7 @@ function parseVCardText(text) {
   return contacts;
 }
 
-// vCardインポート実行
+// Execute vCard import
 async function importVCardFile(file) {
   if (!file) return;
 
@@ -1269,7 +1263,7 @@ async function importVCardFile(file) {
     return;
   }
 
-  // ファイルサイズの安全装置 (20MBに変更し、顔写真付きvCardの誤爆を回避)
+  // File size safety measure (Changed to 20MB to avoid false positives with photo vCards)
   if (file.size > 20971520) {
     const isConfirmed = await window.requestCustomPrompt(
       window._t("error.warning_title"),
@@ -1312,11 +1306,11 @@ function executeVCardImport(contacts) {
     checkStmt = db.prepare(
       "SELECT 1 FROM records WHERE memo = ? AND IFNULL(contact_info, '') = IFNULL(?, '') LIMIT 1",
     );
-    // 組織ごとにグループ化
+    // Group by organization
     const orgMap = new Map();
     contacts.forEach((c) => {
       const org = c.org || window._t("label.vcard_import");
-      // 比較キー: 全角半角スペースを削除し、NFKC正規化と小文字化を行うことで揺らぎを吸収
+      // Comparison key: Absorb fluctuations by removing all spaces, NFKC normalizing, and lowercasing
       const orgKey = org
         .normalize("NFKC")
         .toLowerCase()
@@ -1346,11 +1340,11 @@ function executeVCardImport(contacts) {
         const contactInfo = emailField?.value || phoneField?.value || null;
         const role = titleField?.value || null;
 
-        // 重複チェック
+        // Duplicate check
         checkStmt.bind([name, contactInfo]);
         if (checkStmt.step()) {
           checkStmt.reset();
-          continue; // 重複しているのでスキップ
+          continue; // Skip because it's a duplicate
         }
         checkStmt.reset();
 
@@ -1362,7 +1356,7 @@ function executeVCardImport(contacts) {
         const childId = cRes[0]?.values?.[0]?.[0];
         if (!childId) throw new Error("子IDの取得に失敗しました");
 
-        // contact_fields に全フィールドを保存
+        // Save all fields to contact_fields
         const counters = {};
         for (const f of contact.fields) {
           const counterKey = f.key;
@@ -1396,7 +1390,7 @@ function executeVCardImport(contacts) {
   renderData();
 }
 
-// 1. WebAssembly版 SQLiteエンジンの初期化
+// 1. Initialization of WebAssembly SQLite engine
 async function initSQLite() {
   try {
     if (typeof initSqlJs === "undefined") {
@@ -1405,11 +1399,10 @@ async function initSQLite() {
       );
     }
 
-    const config = {
-      locateFile: (filename) =>
-        `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${filename}`,
-    };
-    SQL = await initSqlJs(config);
+    // Fetch WASM manually as ArrayBuffer to bypass incorrect MIME type warnings (e.g. from local servers)
+    const wasmResponse = await fetch("./assets/sql-wasm.wasm");
+    const wasmBinary = await wasmResponse.arrayBuffer();
+    SQL = await initSqlJs({ wasmBinary });
 
     let initialData = null;
     const draft = await loadDraft();
@@ -1431,9 +1424,10 @@ async function initSQLite() {
           let password = document.getElementById("file-password").value;
           let success = false;
           let attempt = 0;
+          const encryptedOriginal = Uints; // Backup original
           while (!success) {
             try {
-              Uints = await decryptData(Uints, password);
+              Uints = await decryptData(encryptedOriginal, password);
               success = true;
               if (password) {
                 document.getElementById("file-password").value = password;
@@ -1525,17 +1519,17 @@ async function initSQLite() {
       showToast(window._t("toast.sqlite_ready"), '<span class="text-green-400">●</span>');
     }
 
-    // SQLiteエンジンのローディング表示を消す
+    // Hide SQLite engine loading indicator
     hideStatus();
 
-    // DB内の設定を読み込んでUIに反映
+    // Read settings in DB and reflect in UI
     loadSettingsFromDb();
 
     document.getElementById("app-ui").classList.remove("hidden");
 
     renderData();
 
-    // PWAとしてOSからファイルがダブルクリックされた場合の処理
+    // Processing when file is double-clicked from OS as a PWA
     handleLaunchFiles();
   } catch (err) {
     showToast(window._t("error.sqlite_fail"), "<span>⚠️</span>", "error");
@@ -1550,12 +1544,12 @@ async function initSQLite() {
       errorScreen.classList.remove("hidden");
       errorScreen.classList.add("flex");
     }
-    // エラー時もローディング表示を消す
+    // Hide loading indicator even on error
     hideStatus();
   }
 }
 
-// OS上で .people ファイルがダブルクリックされた時の処理 (File Handling API)
+// Processing when a .people file is double-clicked on the OS (File Handling API)
 function handleLaunchFiles() {
   if ("launchQueue" in window) {
     window.launchQueue.setConsumer(async (launchParams) => {
@@ -1594,7 +1588,7 @@ function handleLaunchFiles() {
   }
 }
 
-// ステータス表示を数秒後に消す関数
+// Function to hide status display after a few seconds
 function hideStatus() {
   if (statusTimeoutId) clearTimeout(statusTimeoutId);
 
@@ -1608,7 +1602,7 @@ function hideStatus() {
   }, 3000);
 }
 
-// トースト通知を表示するヘルパー関数 (スタック対応)
+// Helper function to display toast notifications (Stack supported)
 function showToast(message, iconHtml = "✅", type = "normal") {
   let container = document.getElementById("toast-container");
   if (!container) {
@@ -1634,7 +1628,7 @@ function showToast(message, iconHtml = "✅", type = "normal") {
 
   container.appendChild(toast);
 
-  // 画面が埋まるのを防ぐため、最大表示数を3個に制限
+  // Limit max display to 3 items to prevent filling the screen
   while (container.childElementCount > 3) {
     container.firstChild.remove();
   }
@@ -1645,7 +1639,7 @@ function showToast(message, iconHtml = "✅", type = "normal") {
   }, 3000);
 }
 
-// 2. ブロックまたはアイテムの追加
+// 2. Add block or item
 function addBlock() {
   const memoInput = document.getElementById("new-block-memo");
   const trimmedMemo = memoInput.value.trim();
@@ -1653,26 +1647,30 @@ function addBlock() {
 
   let defaultTag = null;
   if (currentActiveTag) {
-    defaultTag = currentActiveTag.replace(/^[#＃]/, ""); // #を除去して保存
+    defaultTag = currentActiveTag.replace(/^[#＃]/, ""); // Save after removing #
   }
 
   const localTime = getLocalTimeFormatted();
 
-  db.run(
-    "INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)",
-    [trimmedMemo, null, defaultTag, localTime],
-  );
-  const res = db.exec("SELECT last_insert_rowid()");
-  const newId = res[0]?.values?.[0]?.[0];
+  db.run("BEGIN TRANSACTION;");
+  try {
+    db.run(
+      "INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)",
+      [trimmedMemo, null, defaultTag, localTime],
+    );
+    const res = db.exec("SELECT last_insert_rowid()");
+    const newId = res[0]?.values?.[0]?.[0];
 
-  if (!newId) {
-    console.error("IDの取得に失敗しました");
-    return;
+    if (!newId) throw new Error("IDの取得に失敗しました");
+
+    db.run("COMMIT;");
+    memoInput.value = "";
+    setDirty(true);
+    renderData(newId);
+  } catch (e) {
+    db.run("ROLLBACK;");
+    console.error(e);
   }
-
-  memoInput.value = "";
-  setDirty(true);
-  renderData(newId);
 }
 
 function addItem(parentId, memo, contactInfo, dateStr, roleStr) {
@@ -1719,21 +1717,10 @@ function insertRecord(
     } catch (e) {}
   }
 
-  let query =
-    "INSERT INTO records (parent_id, memo, contact_info, role, tags, sort_order) VALUES (?, ?, ?, ?, ?, ?)";
-  let params = [parentId, memo, contactInfo, roleStr, tags, nextSortOrder];
-
-  if (dateStr) {
-    // タイムゾーンによるバグを回避するため、入力された日付を文字列のまま保存する
-    query =
-      "INSERT INTO records (parent_id, memo, contact_info, role, tags, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    params.push(dateStr + " 00:00:00");
-  } else {
-    // SQLiteのCURRENT_TIMESTAMP(UTC)による9時間ズレを防ぐため、JS側でローカル時間を記録
-    query =
-      "INSERT INTO records (parent_id, memo, contact_info, role, tags, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
-    params.push(getLocalTimeFormatted());
-  }
+  const createdAt = dateStr ? (dateStr + " 00:00:00") : getLocalTimeFormatted();
+  const query =
+    "INSERT INTO records (parent_id, memo, contact_info, role, tags, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
+  const params = [parentId, memo, contactInfo, roleStr, tags, nextSortOrder, createdAt];
 
   let stmt;
   try {
@@ -1745,15 +1732,15 @@ function insertRecord(
   setDirty(true);
 }
 
-// 【新機能 1】 過去のメモ履歴を抽出して Datalist に登録する
+// [Feature 1] Extract past memo history and register it to Datalist
 function renderMemoSuggestions() {
   if (!db) return;
   const datalist = document.getElementById("memo-suggestions");
   if (!datalist) return;
 
   try {
-    // 親ブロックではない(parent_id IS NOT NULL)過去のメモを重複排除して直近使った順に取得
-    // SQLiteでの安全な書き方(GROUP BY + MAX)を採用
+    // Get deduplicated past memos that are not parent blocks (parent_id IS NOT NULL) in recently used order
+    // Adopt safe writing style in SQLite (GROUP BY + MAX)
     const res = db.exec(
       "SELECT memo FROM records WHERE parent_id IS NOT NULL AND memo != '' GROUP BY memo ORDER BY MAX(id) DESC",
     );
@@ -1770,7 +1757,7 @@ function renderMemoSuggestions() {
   }
 }
 
-// 【新機能 2】 入力されたメモから、過去の科目を自動推論して埋める
+// [Feature 2] Automatically infer and fill past subjects based on entered memo
 function autoSuggestRole(memoInput) {
   if (!db) return;
   const memo = memoInput.value.trim();
@@ -1779,12 +1766,12 @@ function autoSuggestRole(memoInput) {
   const form = memoInput.closest("form");
   const roleInput = form.querySelector(".item-role");
 
-  // すでにユーザーが役割を手入力している場合は、上書きせずに尊重する
+  // Respect and do not overwrite if the user has already manually entered a role
   if (roleInput.value.trim() !== "") return;
 
   let stmt;
   try {
-    // 過去の明細から「同じメモ」で使われた最新の「役職」を1件だけ検索
+    // Search for only 1 latest 'role' used with the 'same memo' from past details
     stmt = db.prepare(
       "SELECT role FROM records WHERE parent_id IS NOT NULL AND memo = ? AND role IS NOT NULL AND role != '' ORDER BY id DESC LIMIT 1",
     );
@@ -1793,15 +1780,15 @@ function autoSuggestRole(memoInput) {
     if (stmt.step()) {
       const role = stmt.get()[0];
       if (role) {
-        roleInput.value = role; // 役割を自動入力
+        roleInput.value = role; // Auto-fill role
 
-        // DBに即時反映させ、未保存(isDirty)フラグを立てる
+        // Reflect immediately in DB and set unsaved (isDirty) flag
         const itemId = roleInput.getAttribute("data-id");
         if (itemId) {
           updateRecord(itemId, 'role', role, roleInput);
         }
 
-        // （おまけ）自動入力されたことがユーザーに伝わるよう、一瞬だけ色を変えるマイクロインタラクション
+        // (Bonus) Micro-interaction: briefly change color so user notices auto-fill
         roleInput.classList.add(
           "!bg-purple-100",
           "!text-purple-700",
@@ -1826,18 +1813,23 @@ function autoSuggestRole(memoInput) {
   }
 }
 
-// --- インプレース編集機能 ---
+// --- In-Place Edit Feature ---
 function updateRecord(id, field, newValue, element) {
   if (!db) return;
 
-  // ホワイトリストによるSQLインジェクション対策
+  // SQL Injection prevention using whitelist
   const allowedFields = ["contact_info", "memo", "role", "created_at", "tags"];
   if (!allowedFields.includes(field)) {
     console.error("Invalid field name");
     return;
   }
+  // Additional multi-layered defense against SQL injection
+  if (!/^[a-z_]+$/.test(field)) {
+    console.error("Illegal field format");
+    return;
+  }
 
-  // ★ 安全に文字列化（null/undefined フォールバック付き）してからサニタイズ
+  // ★ Safely stringify (with null/undefined fallback) before sanitizing
   let val = String(newValue ?? "")
     .replace(/[\r\n]+/g, " ")
     .trim();
@@ -1846,15 +1838,11 @@ function updateRecord(id, field, newValue, element) {
   }
 
   if (field === "memo") {
-    // 氏名を直接編集した場合は、裏側にある古い姓名データをリセットし、整合性を保つ
-    clearContactFieldsByKey(id, "family_name");
-    clearContactFieldsByKey(id, "given_name");
-    clearContactFieldsByKey(id, "middle_name");
-    clearContactFieldsByKey(id, "name_prefix");
-    clearContactFieldsByKey(id, "name_suffix");
+    // 💡 Removed: Destroying underlying structured name data (N) by editing the display name (FN) on the list
+    // Remove clearing logic to protect data, as it causes destructive data loss.
   }
 
-  // 変更があるかチェック (内容が変わっていない場合は何もしない)
+  // Check for changes (do nothing if content hasn't changed)
   let oldValForEAV = null;
   let checkStmt;
   try {
@@ -1863,10 +1851,10 @@ function updateRecord(id, field, newValue, element) {
     if (checkStmt.step()) {
       const currentVal = checkStmt.get()[0];
       if (currentVal == val) {
-        // 型の違い（"100"と100など）を許容するため == を使用
-        return; // 変更なし
+        // Use == to allow type differences (like "100" and 100)
+        return; // No changes
       }
-      oldValForEAV = currentVal; // 💡 変更前の値を安全に退避しておく
+      oldValForEAV = currentVal; // 💡 Safely backup the value before modification
     }
   } finally {
     if (checkStmt) checkStmt.free();
@@ -1880,12 +1868,12 @@ function updateRecord(id, field, newValue, element) {
     if (stmt) stmt.free();
   }
 
-  // EAVテーブル (contact_fields) との完全同期
+  // Complete synchronization with EAV table (contact_fields)
   if (field === "role") {
     clearContactFieldsByKey(id, "job_title");
     if (val) setContactField(id, "job_title", val, "other", 0);
   } else if (field === "contact_info") {
-    // 💡 修正: もう片方の連絡先を巻き添えで消さないよう、退避済みの変更前の値からタイプを特定する
+    // 💡 Fix: Identify the type from the safely backed up previous value to avoid accidentally deleting the other contact
     const oldVal = oldValForEAV;
     const oldType = (oldVal && oldVal.includes("@")) ? "email" : "phone";
 
@@ -1906,7 +1894,7 @@ function updateRecord(id, field, newValue, element) {
     }
   }
 
-  // ★ ゴースト行（氏名・連絡先・役割がすべて空の明細）の自動クリーンアップ
+  // ★ Automatic cleanup of ghost rows (details where name, contact, and role are all empty)
   let checkGhostStmt;
   try {
     checkGhostStmt = db.prepare(
@@ -1921,22 +1909,25 @@ function updateRecord(id, field, newValue, element) {
         (!cInfo || cInfo.trim() === "") &&
         (!r || r.trim() === "")
       ) {
-        // 💡 修正: 裏側に詳細データ（住所・メモなど）が存在しないか確認し、存在すれば削除をスキップする
+        // 💡 Fix: Check if detail data (address, memo, etc.) exists behind the scenes and skip deletion if it does
         let hasDetails = false;
+        let detailStmt;
         try {
-          const detailStmt = db.prepare("SELECT 1 FROM contact_fields WHERE record_id = ? LIMIT 1");
+          detailStmt = db.prepare("SELECT 1 FROM contact_fields WHERE record_id = ? LIMIT 1");
           detailStmt.bind([id]);
           if (detailStmt.step()) hasDetails = true;
-          detailStmt.free();
-        } catch (e) {}
+        } catch (e) {
+        } finally {
+          if (detailStmt) detailStmt.free();
+        }
 
         if (!hasDetails) {
-          // 非同期に逃がすことで、現在のblurイベントやフォーカス移動を安全に完了させ、その後フォーカスを復元する
+          // Safely complete the current blur event or focus move by delegating asynchronously, then restore focus
           setTimeout(async () => {
             const parentIdForFocus = pId;
             await deleteRecord(id, true);
 
-            // 削除された行ではなく、そのブロックの新規追加欄にフォーカスを移す
+            // Move focus to the new entry field of the block instead of the deleted row
             requestAnimationFrame(() => {
               const newFocusTarget = document.querySelector(`#block-form-${parentIdForFocus} .item-memo`);
               if (newFocusTarget) {
@@ -1955,7 +1946,7 @@ function updateRecord(id, field, newValue, element) {
 
   setDirty(true);
 
-  // Tabキー等によるフォーカス移動を追跡して復元するマジック
+  // Magic to track and restore focus movement by Tab key etc.
   const activeEl = document.activeElement;
   let focusSelector = null;
 
@@ -1992,23 +1983,23 @@ function updateRecord(id, field, newValue, element) {
     }
   }
 
-  // ★ 連絡先や日付が変更された場合のみ再計算・再描画
+  // ★ Recalculate and redraw only when contact or date changes
   if (field === "contact_info" || field === "memo" || field === "role") {
     if (element && element.innerText !== val) {
       element.innerText = val !== null ? val : "";
     }
   } else if (field === "tags" || (field === "memo" && /[#＃]/.test(val))) {
-    // タグが変更されたらUIを即時反映させるため再描画
-    // 他ボタンのクリックイベントを阻害しないよう、再描画を遅延させる
+    // Redraw to immediately reflect UI when tags change
+    // Delay redraw to not obstruct click events of other buttons
     setTimeout(() => {
-      // 別の入力欄にフォーカスが移っている場合は再描画をスキップし、入力を邪魔しない
+      // Skip redrawing if focus has moved to another input field so as not to interrupt typing
       const activeEl = document.activeElement;
       const isTypingElsewhere =
         activeEl &&
         (activeEl.tagName === "INPUT" ||
           activeEl.hasAttribute("contenteditable"));
 
-      // ★ 入力中でない場合のみ即時再描画 (タイピング中のDOM再構築を防止し競合を回避)
+      // ★ Redraw immediately only when not typing (Prevent DOM rebuild during typing to avoid conflicts)
       if (!isTypingElsewhere) {
         renderData();
         if (focusSelector) {
@@ -2040,19 +2031,19 @@ function updateRecord(id, field, newValue, element) {
       }
     }, 100);
   } else {
-    // メモや役割の変更は、すでに画面上の文字（innerText / value）が書き換わっているため、
-    // DBへの保存(UPDATE)と setDirty(true) だけで十分。DOMの再構築はスキップし、超速タイピングを邪魔しない。
+    // Since memo or role changes already rewrite the text on screen (innerText / value),
+    // Saving to DB (UPDATE) and setDirty(true) is sufficient. Skip DOM rebuild to avoid interrupting ultra-fast typing.
     if (field === "memo" && element && element.tagName === "H2") {
       const tocItem = document.querySelector(`.toc-item[href="#block-${id}"]`);
       if (tocItem) {
-        // 💡 修正: ハードコーディングを排除し、i18n翻訳システムを使用
+        // 💡 Fix: Eliminate hardcoding and use i18n translation system
         tocItem.textContent = val || window._t("label.unnamed");
         tocItem.title = val || window._t("label.unnamed");
       }
     }
   }
 
-  // ★ DOMのテキストが完全に空になった場合、ゴミタグを消し去って empty 疑似クラスを効かせる
+  // ★ If DOM text becomes completely empty, clear garbage tags to let empty pseudo-class work
   if ((field === "memo" || field === "contact_info") && element) {
     if (val === "" || val === null) {
       element.innerHTML = "";
@@ -2060,7 +2051,7 @@ function updateRecord(id, field, newValue, element) {
   }
 }
 
-// --- タグUIのみを再計算して更新する (タイピング阻害防止用) ---
+// --- Recalculate and update only tag UI (to prevent typing interference) ---
 function updateTagUIOnly() {
   if (!db) return;
   const res = db.exec("SELECT id, parent_id, memo, tags FROM records ORDER BY sort_order ASC, id ASC");
@@ -2111,20 +2102,20 @@ function updateTagUIOnly() {
   }
 }
 
-// ハッカー的カウントアップ演出
+// Hacker-like count-up effect
 function animateTotal(newTotal) {
   const el = document.getElementById("grand-total-num");
   if (!el) return;
 
   const start = currentDisplayedTotal;
   
-  // 変更がない場合は無駄なアニメーションループをスキップする
+  // Skip unnecessary animation loop if there are no changes
   if (start === newTotal) {
     el.textContent = newTotal.toLocaleString("ja-JP");
     return;
   }
 
-  // 既に実行中のアニメーションがあればキャンセル（描画の暴走・CPUスパイク防止）
+  // Cancel any already running animations (Prevent rendering rampage / CPU spike)
   if (totalAnimationId !== null) {
     cancelAnimationFrame(totalAnimationId);
   }
@@ -2143,13 +2134,13 @@ function animateTotal(newTotal) {
     } else {
       el.textContent = newTotal.toLocaleString("ja-JP");
       currentDisplayedTotal = newTotal;
-      totalAnimationId = null; // 完了時にリセット
+      totalAnimationId = null; // Reset on completion
     }
   }
   totalAnimationId = requestAnimationFrame(update);
 }
 
-// ブロックの折りたたみ（アコーディオン）切り替え
+// Toggle block collapse (Accordion)
 function toggleBlock(id) {
   if (collapsedBlocks.has(id)) {
     collapsedBlocks.delete(id);
@@ -2161,7 +2152,7 @@ function toggleBlock(id) {
   if (bodyEl && iconEl) {
     if (collapsedBlocks.has(id)) {
       bodyEl.style.maxHeight = bodyEl.scrollHeight + "px";
-      bodyEl.offsetHeight; // リフローを強制してトランジションを有効化する
+      bodyEl.offsetHeight; // Force reflow to enable transitions
       bodyEl.style.maxHeight = "0px";
       bodyEl.style.opacity = "0";
       iconEl.style.transform = "rotate(-90deg)";
@@ -2178,12 +2169,12 @@ function toggleBlock(id) {
   }
 }
 
-// --- すべて展開 / すべて折りたたみ ---
+// --- Expand All / Collapse All ---
 function toggleAllBlocks(collapse) {
   if (!db) return;
 
   if (collapse) {
-    // DBから全ての親ブロックIDを取得し、確実に全て折りたたむ
+    // Get all parent block IDs from DB and reliably collapse them all
     let stmt;
     try {
       stmt = db.prepare("SELECT id FROM records WHERE parent_id IS NULL");
@@ -2194,11 +2185,11 @@ function toggleAllBlocks(collapse) {
       if (stmt) stmt.free();
     }
   } else {
-    // セットを空にして全展開
+    // Empty the set and expand all
     collapsedBlocks.clear();
   }
 
-  // ✅ View Transition API を使って、滑らかに一斉開閉させる
+  // ✅ Use View Transition API to toggle smoothly and simultaneously
   if (document.startViewTransition) {
     document.startViewTransition(() => renderData());
   } else {
@@ -2206,11 +2197,11 @@ function toggleAllBlocks(collapse) {
   }
 }
 
-// --- カテゴリ（タグ）フィルター制御 ---
+// --- Category (Tag) Filter Control ---
 function setCategoryFilter(tag) {
   currentActiveTag = tag;
 
-  // フィルター適用時にスクロール位置をトップに戻し、迷子を防ぐ
+  // Return scroll position to top when filter is applied to prevent getting lost
   window.scrollTo({ top: 0, behavior: "instant" });
 
   if (document.startViewTransition) {
@@ -2224,12 +2215,12 @@ function updateCategoryFiltersUI(tagTotals) {
   const container = document.getElementById("category-filters");
   if (!container) return;
 
-  // スクロール位置を記憶
+  // Remember scroll position
   const currentScrollLeft = container.scrollLeft;
 
-  container.innerHTML = ""; // 既存の中身をクリア
+  container.innerHTML = ""; // Clear existing content
 
-  // 「すべて表示」ボタンの生成
+  // Generate 'Show All' button
   const allBtn = document.createElement("button");
   allBtn.id = "filter-btn-all";
   allBtn.textContent = window._t("filter.all");
@@ -2240,7 +2231,7 @@ function updateCategoryFiltersUI(tagTotals) {
   allBtn.onclick = () => setCategoryFilter(null);
   container.appendChild(allBtn);
 
-  // タグを人数の多い順にソートしてピル（ボタン）を生成
+  // Sort tags by number of people and generate pills (buttons)
   Object.entries(tagTotals)
     .sort((a, b) => b[1].count - a[1].count)
     .forEach(([tag, data]) => {
@@ -2253,13 +2244,13 @@ function updateCategoryFiltersUI(tagTotals) {
       container.appendChild(btn);
     });
 
-  // レンダリング直後にスクロール位置を復元
+  // Restore scroll position right after rendering
   requestAnimationFrame(() => {
     container.scrollLeft = currentScrollLeft;
   });
 }
 
-// 3. ブロック構造の描画
+// 3. Render block structure
 function renderData(focusBlockId = null) {
   if (!db) return;
   const container = document.getElementById("blocks-container");
@@ -2268,7 +2259,7 @@ function renderData(focusBlockId = null) {
     "SELECT id, parent_id, memo, contact_info, created_at, role, tags FROM records ORDER BY sort_order ASC, id ASC",
   );
 
-  // レコードを格納する配列（空の場合は空ステートを描画するため処理を続行）
+  // Array to store records (continue processing to render empty state if empty)
   let records = [];
   if (res.length > 0 && res[0].values) {
     records = res[0].values.map(
@@ -2301,7 +2292,7 @@ function renderData(focusBlockId = null) {
     }
   });
 
-  // タグ集計用 (事前に全データから抽出しておく)
+  // For tag aggregation (Extract from all data beforehand)
   let tagTotals = Object.create(null);
   tree.forEach((block) => {
     const blockTags = extractRecordTags(block.memo, block.tags).map(t => "#" + t);
@@ -2334,7 +2325,7 @@ function renderData(focusBlockId = null) {
     }
   });
 
-  // 画面上部のカテゴリタブUIを更新
+  // Update category tab UI at the top of the screen
   updateCategoryFiltersUI(tagTotals);
 
   const tagDatalist = document.getElementById("tag-suggestions");
@@ -2342,12 +2333,12 @@ function renderData(focusBlockId = null) {
     tagDatalist.innerHTML = "";
     Object.keys(tagTotals).forEach((tag) => {
       const option = document.createElement("option");
-      option.value = tag.replace(/^[#＃]/, ""); // 入力時は # なしでサジェスト
+      option.value = tag.replace(/^[#＃]/, ""); // Suggest without # during input
       tagDatalist.appendChild(option);
     });
   }
 
-  // カテゴリ（タグ）によるフィルタリングの適用
+  // Apply filtering by category (tag)
   const filteredTree = [];
   tree.forEach((block) => {
     if (!currentActiveTag) {
@@ -2355,15 +2346,15 @@ function renderData(focusBlockId = null) {
     } else {
       const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
 
-      // 親ブロック自体がタグを含んでいるか
+      // Does the parent block itself contain tags
       const blockAllTags = extractRecordTags(block.memo, block.tags);
       const blockHasTag = blockAllTags.includes(activeTagRaw);
 
       if (blockHasTag) {
-        // 親がタグを持っていれば、子要素はすべて表示
+        // Show all child elements if parent has a tag
         filteredTree.push(block);
       } else {
-        // 子要素の中にタグを持っている人がいれば、その人だけを残す
+        // If there is someone with a tag among child elements, keep only that person
         const filteredChildren = block.children.filter((item) => {
           const itemAllTags = extractRecordTags(item.memo, item.tags);
           return itemAllTags.includes(activeTagRaw);
@@ -2375,10 +2366,10 @@ function renderData(focusBlockId = null) {
     }
   });
 
-  // 親ブロックを「新しいものが一番上」になるようID降順でソート
+  // Sort parent blocks in descending ID order so 'newest is on top'
   filteredTree.sort((a, b) => b.id - a.id);
 
-  // 合計人数ラベルの表記更新
+  // Update display of total headcount label
   const totalLabelEl = document.getElementById("grand-total-label");
   if (totalLabelEl) {
     totalLabelEl.textContent = currentActiveTag
@@ -2386,11 +2377,11 @@ function renderData(focusBlockId = null) {
       : window._t("label.total_contacts");
   }
 
-  // 左側 TOC (目次) の構築
+  // Build left side TOC (Table of Contents)
   const tocContainer = document.getElementById("toc-container");
   const tocList = document.getElementById("toc-list");
   if (tocContainer && tocList) {
-    const prevScrollTop = tocContainer.scrollTop; // スクロール位置を記憶
+    const prevScrollTop = tocContainer.scrollTop; // Remember scroll position
     tocList.innerHTML = "";
 
     filteredTree.forEach((block) => {
@@ -2403,16 +2394,16 @@ function renderData(focusBlockId = null) {
       a.onclick = (e) => {
         e.preventDefault();
 
-        // ★ クリックしたブロック以外をすべて折りたたむ (排他制御でフィルタのような集中モードにする)
+        // ★ Collapse all blocks except the clicked one (Exclusive control for a filter-like focus mode)
         let stmt;
         try {
           stmt = db.prepare("SELECT id FROM records WHERE parent_id IS NULL");
           while (stmt.step()) {
             const pid = stmt.get()[0];
             if (pid === block.id) {
-              collapsedBlocks.delete(pid); // 対象は展開
+              collapsedBlocks.delete(pid); // Expand target
             } else {
-              collapsedBlocks.add(pid); // 他はすべて折りたたむ
+              collapsedBlocks.add(pid); // Collapse everything else
             }
           }
         } finally {
@@ -2420,7 +2411,7 @@ function renderData(focusBlockId = null) {
         }
 
         const applyScroll = () => {
-          // 💡 DOMの折りたたみが落ち着くまで少し待機し、1回だけシンプルにスクロールさせる
+          // 💡 Wait briefly for DOM collapsing to settle, and scroll once simply
           setTimeout(() => {
             const targetEl = document.getElementById(`block-${block.id}`);
             if (targetEl) {
@@ -2429,7 +2420,7 @@ function renderData(focusBlockId = null) {
           }, 150);
         };
 
-        // 再描画して状態を反映
+        // Redraw to reflect state
         if (document.startViewTransition) {
           document.startViewTransition(() => {
             renderData();
@@ -2443,10 +2434,10 @@ function renderData(focusBlockId = null) {
       tocList.appendChild(a);
     });
 
-    // レンダリング後にスクロール位置を復元
+    // Restore scroll position after rendering
     requestAnimationFrame(() => {
       tocContainer.scrollTop = prevScrollTop;
-      // 検索フィルターが入力中なら再適用
+      // Reapply if search filter is being input
       const tocFilter = document.getElementById("toc-filter");
       if (tocFilter && tocFilter.value) {
         applyTocFilter(tocFilter.value);
@@ -2454,7 +2445,7 @@ function renderData(focusBlockId = null) {
     });
   }
 
-  // ブロック要素の簡易差分更新 (AutoAnimateのチラつき防止)
+  // Simple diff update of block elements (Prevent AutoAnimate flicker)
   const existingBlocks = Array.from(container.children);
   const existingBlockMap = new Map();
   existingBlocks.forEach((el) => {
@@ -2469,7 +2460,7 @@ function renderData(focusBlockId = null) {
   const blockControls = document.getElementById("block-controls");
 
   if (filteredTree.length === 0) {
-    // データがない時はコントロールを隠す
+    // Hide controls when no data
     if (blockControls) {
       blockControls.classList.add("hidden");
       blockControls.classList.remove("flex");
@@ -2477,7 +2468,7 @@ function renderData(focusBlockId = null) {
 
     const isFilterActive = currentActiveTag !== null;
 
-    // ✅ File System Access APIの対応状況を自動判定
+    // ✅ Automatically detect File System Access API support
     const isFsaSupported = "showSaveFilePicker" in window;
     const browserNoticeHtml = isFsaSupported
       ? `<div class="mt-8 flex flex-col items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
@@ -2525,7 +2516,7 @@ function renderData(focusBlockId = null) {
     return;
   }
 
-  // データがある時はコントロールを表示 (ただしフィルター適用中は強制展開されるため隠す)
+  // Show controls when there is data (but hide them during active filters as blocks are forced open)
   if (blockControls) {
     if (currentActiveTag) {
       blockControls.classList.add("hidden");
@@ -2544,12 +2535,12 @@ function renderData(focusBlockId = null) {
       grandTotal += 1;
     });
 
-    // 既存のDOMがあれば再利用し、なければ新規作成
+    // Reuse existing DOM if present, otherwise create new
     let blockEl = existingBlockMap.get(block.id);
     blockEl = updateOrCreateBlockElement(block, blockEl);
     existingBlockMap.delete(block.id);
 
-    // 要素の順序が異なっていればDOM上の位置を修正する
+    // Correct DOM position if element order differs
     if (container.children[currentDomIndex] !== blockEl) {
       container.insertBefore(
         blockEl,
@@ -2559,10 +2550,10 @@ function renderData(focusBlockId = null) {
     currentDomIndex++;
   });
 
-  // 存在しなくなった古いブロックを削除
+  // Delete old blocks that no longer exist
   existingBlockMap.forEach((el) => el.remove());
 
-  // 左側 TOC の下部にタグ一覧を生成
+  // Generate tag list at bottom of left TOC
   if (tocContainer && Object.keys(tagTotals).length > 0) {
     const tagDivider = document.createElement("div");
     tagDivider.className =
@@ -2570,7 +2561,7 @@ function renderData(focusBlockId = null) {
     tagDivider.innerHTML = `<svg class="w-3 h-3"><use href="#icon-folder"></use></svg> PROJECTS`;
     if (tocList) tocList.appendChild(tagDivider);
 
-    // タグを人数が多い順にソートして表示
+    // Display tags sorted by number of people
     Object.entries(tagTotals)
       .sort((a, b) => b[1].count - a[1].count)
       .forEach(([tag, data]) => {
@@ -2588,7 +2579,7 @@ function renderData(focusBlockId = null) {
         `;
         a.querySelector("div").onclick = (e) => {
           e.preventDefault();
-          // ★ モーダルを出すのではなく、メイン画面のフィルタを直接かける
+          // ★ Apply filter directly to the main screen instead of opening a modal
           setCategoryFilter(tag);
         };
         a.querySelector(".export-btn").onclick = (e) => {
@@ -2600,7 +2591,7 @@ function renderData(focusBlockId = null) {
       });
   }
 
-  // スマホ用のタグ表示エリアを（既存のものがあれば削除して）再生成
+  // Regenerate tag display area for mobile (removing existing ones if any)
   const mainContainer = document.getElementById("blocks-container");
 
   let prevMobileTagScroll = 0;
@@ -2636,7 +2627,7 @@ function renderData(focusBlockId = null) {
             <svg class="w-4 h-4"><use href="#icon-download"></use></svg>
           </button>
         `;
-        // ★ モーダルではなくメイン画面フィルタ
+        // ★ Main screen filter instead of modal
         btn.onclick = () => setCategoryFilter(tag);
         btn.querySelector(".export-btn").onclick = (e) => {
           e.stopPropagation();
@@ -2646,7 +2637,7 @@ function renderData(focusBlockId = null) {
       });
 
     mobileTagContainer.appendChild(grid);
-    // スマホではスクロールせずにアクセスできるよう、一番「上」に挿入する
+    // Insert at the very 'top' so it can be accessed without scrolling on mobile
     mainContainer.insertBefore(mobileTagContainer, mainContainer.firstChild);
 
     if (prevMobileTagScroll > 0) {
@@ -2657,7 +2648,7 @@ function renderData(focusBlockId = null) {
     }
   }
 
-  // 数字のアニメーション更新
+  // Update number animation
   animateTotal(Math.round(grandTotal));
 
   renderMemoSuggestions();
@@ -2672,68 +2663,73 @@ function renderData(focusBlockId = null) {
     }
   }
 
-  // --- TOC（目次）の自動ハイライト (Scrollspy) ---
-  if (window.tocObserver) window.tocObserver.disconnect();
+  // --- TOC (Table of Contents) Auto-Highlight (Scrollspy) ---
+  if (!window.tocObserver) {
+    // 💡 Initialize instance only once and reuse to save memory
+    window.tocObserver = new IntersectionObserver(
+      (entries) => {
+        // If multiple elements intersect simultaneously, process only the last one (most recently entered screen)
+        const intersectingEntries = entries.filter((e) => e.isIntersecting);
+        if (intersectingEntries.length === 0) return;
+        const targetEntry =
+          intersectingEntries[intersectingEntries.length - 1];
 
-  window.tocObserver = new IntersectionObserver(
-    (entries) => {
-      // 同時に複数の要素が交差した場合、最後の要素（最も新しく画面に入った要素）だけを処理する
-      const intersectingEntries = entries.filter(e => e.isIntersecting);
-      if (intersectingEntries.length === 0) return;
-      const targetEntry = intersectingEntries[intersectingEntries.length - 1];
+        // Look ONLY for currently active (colored) elements to reset (Super lightweight)
+        document.querySelectorAll(".toc-item.text-primary").forEach((el) => {
+          el.classList.remove(
+            "text-primary",
+            "dark:text-blue-400",
+            "bg-primary-50",
+            "dark:bg-primary/20",
+            "font-bold",
+          );
+          el.classList.add(
+            "text-slate-500",
+            "dark:text-slate-400",
+            "font-medium",
+          );
+        });
+        const activeToc = document.querySelector(
+          `.toc-item[href="#${targetEntry.target.id}"]`,
+        );
+        if (activeToc) {
+          activeToc.classList.remove(
+            "text-slate-500",
+            "dark:text-slate-400",
+            "font-medium",
+          );
+          activeToc.classList.add(
+            "text-primary",
+            "dark:text-blue-400",
+            "bg-primary-50",
+            "dark:bg-primary/20",
+            "font-bold",
+          );
+          const tocContainer = document.getElementById("toc-container");
+          const tocFilter = document.getElementById("toc-filter");
+          const isFiltering = tocFilter && tocFilter.value.trim() !== "";
 
-      // 現在アクティブな(色がついている)要素 "だけ" を探してリセットする（超軽量）
-      document.querySelectorAll(".toc-item.text-primary").forEach((el) => {
-        el.classList.remove(
-          "text-primary",
-          "dark:text-blue-400",
-          "bg-primary-50",
-          "dark:bg-primary/20",
-          "font-bold",
-        );
-        el.classList.add(
-          "text-slate-500",
-          "dark:text-slate-400",
-          "font-medium",
-        );
-      });
-      const activeToc = document.querySelector(
-        `.toc-item[href="#${targetEntry.target.id}"]`,
-      );
-      if (activeToc) {
-        activeToc.classList.remove(
-          "text-slate-500",
-          "dark:text-slate-400",
-          "font-medium",
-        );
-        activeToc.classList.add(
-          "text-primary",
-          "dark:text-blue-400",
-          "bg-primary-50",
-          "dark:bg-primary/20",
-          "font-bold",
-        );
-        const tocContainer = document.getElementById("toc-container");
-        const tocFilter = document.getElementById("toc-filter");
-        const isFiltering = tocFilter && tocFilter.value.trim() !== "";
-
-        if (tocContainer && !tocContainer.matches(":hover") && !isFiltering) {
-          // scrollIntoViewはページ全体のスクロールを阻害してカクつきを生むため、コンテナ内の相対位置で安全にスクロールさせる
-          const scrollPos =
-            activeToc.offsetTop -
-            tocContainer.clientHeight / 2 +
-            activeToc.clientHeight / 2;
-          tocContainer.scrollTo({
-            top: scrollPos,
-            behavior: "smooth",
-          });
+          if (tocContainer && !tocContainer.matches(":hover") && !isFiltering) {
+            // scrollIntoView interferes with full-page scrolling and causes stuttering, so scroll safely using relative position within the container
+            const scrollPos =
+              activeToc.offsetTop -
+              tocContainer.clientHeight / 2 +
+              activeToc.clientHeight / 2;
+            tocContainer.scrollTo({
+              top: scrollPos,
+              behavior: "smooth",
+            });
+          }
         }
-      }
-    },
-    { rootMargin: "-20% 0px -60% 0px" },
-  );
+      },
+      { rootMargin: "-20% 0px -60% 0px" },
+    );
+  } else {
+    // Disconnect existing observer, but keep instance to re-register targets
+    window.tocObserver.disconnect();
+  }
 
-  // ブロック要素 (.group/block) のみを安全に監視対象にする
+  // Safely observe only block elements (.group/block)
   document.querySelectorAll(".group\\/block").forEach((block) => {
     window.tocObserver.observe(block);
   });
@@ -2742,9 +2738,9 @@ function renderData(focusBlockId = null) {
 function updateOrCreateBlockElement(block, existingEl = null) {
   const blockEl = existingEl || document.createElement("div");
   if (!existingEl) {
-    blockEl.id = `block-${block.id}`; // TOCアンカー用
+    blockEl.id = `block-${block.id}`; // For TOC anchor
     blockEl.className = "group/block relative scroll-mt-36 sm:scroll-mt-48";
-    // 画面外の要素のレンダリングをスキップし、数万件でも60fpsを維持する魔法
+    // Magic to skip rendering off-screen elements and maintain 60fps even with tens of thousands of items
     blockEl.style.contentVisibility = "auto";
     blockEl.style.containIntrinsicSize = "auto 150px";
   }
@@ -2757,7 +2753,7 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const avatarHtml = `<div class="w-8 h-8 rounded-full overflow-hidden shrink-0 mr-3 shadow-sm border border-white/20 hidden sm:block">${avatarSvg}</div>`;
     const roleStr = item.role || "";
 
-    // ★ 役職のデザインをダークモード対応し、ライトモードでもコントラストを高めて見やすくしました
+    // ★ Role design made dark-mode compatible and enhanced contrast for better visibility in light mode
     let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${escapeHtml(window._t("placeholder.role"))}" spellcheck="false" autocomplete="off" 
 onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 'false'; if(typeof this.showPicker === 'function') this.showPicker();" 
 oninput="setDirty(true); this.dataset.cleared = (this.value === '') ? 'true' : 'false';" 
@@ -2773,10 +2769,10 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
             <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.enter_name'))}">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
-          <!-- ★ ここが既存メンバーの連絡先表示欄です -->
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.tel_email_short'))}">${escapeHtml(item.contact_info || "")}</span>
+          <!-- ★ This is the contact display field for existing members -->
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" inputmode="email" autocapitalize="off" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-base sm:text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.tel_email_short'))}">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
-            <!-- ★ タッチターゲットを拡大 (p-2) しました -->
+            <!-- ★ Expanded touch target (p-2) -->
             <button tabindex="-1" onclick="shareContact(${item.id})" aria-label="${window._t("aria.share")}" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="${window._t("title.share_vcard")}">
               <svg class="w-4 h-4"><use href="#icon-share"></use></svg>
             </button>
@@ -2786,7 +2782,7 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
             <button tabindex="-1" onclick="duplicateRecord(${item.id})" aria-label="${window._t("aria.duplicate")}" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="${window._t("title.duplicate")}">
               <svg class="w-4 h-4"><use href="#icon-copy"></use></svg>
             </button>
-            <!-- ★ 削除ボタンもタップしやすく拡大しました -->
+            <!-- ★ Expanded delete button to make it easier to tap -->
             <button tabindex="-1" onclick="deleteRecord(${item.id})" aria-label="${window._t("aria.delete")}" class="text-slate-300 hover:text-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 rounded transition-colors text-2xl leading-none px-2 py-1 -mt-0.5" title="${window._t("title.delete")}">&times;</button>
           </div>
         </div>
@@ -2794,7 +2790,7 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
     `;
   });
 
-  // ★ フィルター適用中は、ユーザーを迷わせないため強制的にブロックを展開する
+  // ★ Force blocks to expand while filter is applied to avoid confusing users
   const isCollapsed = collapsedBlocks.has(block.id) && !currentActiveTag;
   const maxH = isCollapsed ? "0px" : "99999px";
   const op = isCollapsed ? "0" : "1";
@@ -2803,17 +2799,17 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
   blockEl.innerHTML = `
     <div class="bg-white dark:bg-dark-surface rounded-xl shadow-sm border border-slate-200 dark:border-dark-border overflow-hidden transition-all hover:border-slate-300 dark:hover:border-dark-border-hover hover:shadow-md">
 
-    <!-- ★ レイアウト崩壊の原因だった sticky 関連のクラスを削除し、元の安全なフローに戻しました -->
+    <!-- ★ Removed sticky-related classes that caused layout breakage, restoring the original safe flow -->
     <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 dark:bg-dark-surface px-4 sm:px-8 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-start transition-colors cursor-pointer select-none group/header hover:bg-slate-100 dark:hover:bg-dark-surface-hover">
 
       <div class="flex flex-col overflow-hidden w-full">
         <div class="flex items-center gap-3">
           <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
-          <!-- ★ select-text でiOSのフォーカスバグを防止 -->
+          <!-- ★ Prevent iOS focus bug using select-text -->
           <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.group_name'))}">${escapeHtml(block.memo)}</h2>
         </div>
 
-        <!-- ★ 専用タグ入力欄 -->
+        <!-- ★ Dedicated tag input field -->
         <div class="flex items-center gap-1.5 mt-1.5 ml-8 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity" onclick="event.stopPropagation()">
           <svg class="w-3.5 h-3.5 text-slate-400 shrink-0"><use href="#icon-tag"></use></svg>
           <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${escapeHtml(window._t("placeholder.add_tag"))}" onclick="if(typeof this.showPicker === 'function') this.showPicker();" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
@@ -2822,7 +2818,7 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
       <div class="flex items-center shrink-0">
         <div class="font-bold tabular-nums tracking-tight text-slate-900 dark:text-white text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">${window._t("unit.people")}</span></div>
         <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-10 sm:h-8 gap-1">
-          <!-- ★ テンプレート保存ボタンをはみ出させず、ここに安全に統合しました -->
+          <!-- ★ Safely integrated Template Save button here without overflowing -->
           <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="${window._t("aria.save_tpl")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.save_tpl")}">
             <svg class="w-5 h-5"><use href="#icon-squares-plus"></use></svg>
           </button>
@@ -2861,11 +2857,11 @@ class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:te
         </div>
 
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
-          <!-- ★ onfocusのスクロールをPC限定にしてJankを防止 -->
+          <!-- ★ Restrict onfocus scrolling to PC to prevent Jank -->
           <input type="text" placeholder="${escapeHtml(window._t("placeholder.add_name"))}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onclick="if(typeof this.showPicker === 'function') this.showPicker();" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="${window._t("title.smart_paste_help")}"><use href="#icon-sparkles"></use></svg>
 
-          <!-- ★ ここが消えていた新規追加用の連絡先入力欄 (item-contact) です！ -->
+          <!-- ★ This is the missing new contact input field (item-contact)! -->
           <input type="text" inputmode="email" placeholder="${escapeHtml(window._t("placeholder.tel_email"))}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">${window._t("btn.add")}</button>
@@ -2876,11 +2872,11 @@ class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:te
   return blockEl;
 }
 
-// --- テンプレート（1Shot生成）機能 ---
+// --- Template (1-Shot Generation) Feature ---
 async function saveTemplate(blockId) {
   if (!db) return;
 
-  // ブロックのタイトルを取得
+  // Get block title
   let blockMemo = window._t("label.unnamed");
   let blockStmt;
   try {
@@ -2895,7 +2891,7 @@ async function saveTemplate(blockId) {
     if (blockStmt) blockStmt.free();
   }
 
-  // 子要素（明細）の構成を取得
+  // Get composition of child elements (details)
   let items = [];
   let itemsStmt;
   try {
@@ -2965,7 +2961,7 @@ function insertTemplate(templateId) {
     return;
   }
 
-  // 万が一パース結果がオブジェクト等で配列でない場合のクラッシュ(TypeError)を防止
+  // Prevent crash (TypeError) in case the parse result is an object, etc. instead of an array
   if (!Array.isArray(tplData)) {
     showToast(
       window._t("error.tpl_corrupted"),
@@ -2981,71 +2977,74 @@ function insertTemplate(templateId) {
   }
 
   const localTime = getLocalTimeFormatted();
-
-  // 新しい親ブロックを作成
-  db.run(
-    "INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)",
-    [tplName, null, defaultTag, localTime],
-  );
-  const parentRes = db.exec("SELECT last_insert_rowid()");
-  const parentId = parentRes[0]?.values?.[0]?.[0];
-  if (!parentId) {
-    console.error("IDの取得に失敗しました");
-    return;
-  }
-
-  // 今日の日付を取得 (子要素の created_at 用)
-  const dateStr = getLocalTimeFormatted(new Date(), "dateOnly");
-
-  // 子要素を展開して一気にINSERT
-  let insertStmt = null;
-  let insertFieldStmt = null;
+  db.run("BEGIN TRANSACTION;"); // 🔴 Start Transaction
   try {
-    insertStmt = db.prepare(
-      "INSERT INTO records (parent_id, memo, contact_info, role, created_at, tags) VALUES (?, ?, ?, ?, ?, ?)",
+    // Create new parent block
+    db.run(
+      "INSERT INTO records (memo, contact_info, tags, created_at) VALUES (?, ?, ?, ?)",
+      [tplName, null, defaultTag, localTime],
     );
-    insertFieldStmt = db.prepare(
-      "INSERT INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
-    );
-    for (let item of tplData) {
-      insertStmt.run([
-        parentId,
-        item.memo,
-        item.contact_info,
-        item.role,
-        dateStr,
-        item.tags || null,
-      ]);
-      const childRes = db.exec("SELECT last_insert_rowid()");
-      const childId = childRes[0]?.values?.[0]?.[0];
-      if (!childId) continue;
+    const parentRes = db.exec("SELECT last_insert_rowid()");
+    const parentId = parentRes[0]?.values?.[0]?.[0];
+    if (!parentId) throw new Error("IDの取得に失敗しました");
 
-      if (item.fields && Array.isArray(item.fields)) {
-        for (let f of item.fields) {
-          insertFieldStmt.run([
-            childId,
-            f.field_key,
-            f.field_value,
-            f.field_type || "other",
-            f.sort_order || 0,
-          ]);
+    // Get today's date (for child element's created_at)
+    const dateStr = getLocalTimeFormatted(new Date(), "dateOnly");
+
+    // Expand child elements and INSERT at once
+    let insertStmt = null;
+    let insertFieldStmt = null;
+    try {
+      insertStmt = db.prepare(
+        "INSERT INTO records (parent_id, memo, contact_info, role, created_at, tags) VALUES (?, ?, ?, ?, ?, ?)",
+      );
+      insertFieldStmt = db.prepare(
+        "INSERT INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
+      );
+      for (let item of tplData) {
+        insertStmt.run([
+          parentId,
+          item.memo,
+          item.contact_info,
+          item.role,
+          dateStr,
+          item.tags || null,
+        ]);
+        const childRes = db.exec("SELECT last_insert_rowid()");
+        const childId = childRes[0]?.values?.[0]?.[0];
+        if (!childId) continue;
+
+        if (item.fields && Array.isArray(item.fields)) {
+          for (let f of item.fields) {
+            insertFieldStmt.run([
+              childId,
+              f.field_key,
+              f.field_value,
+              f.field_type || "other",
+              f.sort_order || 0,
+            ]);
+          }
         }
       }
+    } finally {
+      if (insertStmt) insertStmt.free();
+      if (insertFieldStmt) insertFieldStmt.free();
     }
-  } finally {
-    if (insertStmt) insertStmt.free();
-    if (insertFieldStmt) insertFieldStmt.free();
-  }
 
-  setDirty(true);
-  renderData(parentId);
+    db.run("COMMIT;"); // 🔴 Commit only if all succeed
+    setDirty(true);
+    renderData(parentId);
+  } catch (e) {
+    db.run("ROLLBACK;"); // 🔴 Revert on failure
+    console.error("Template insertion failed:", e);
+  }
 }
 
-// 3.5 データの削除（DELETE文の実行）
+// 3.5 Delete data (Execute DELETE statement)
 async function deleteRecord(id, force = false) {
   if (!db) return;
 
-  // ブロックかメンバーかを判定し、子供の数を数える
+  // Determine if block or member and count children
   let isParent = false;
   let childCount = 0;
   let pStmt = null;
@@ -3080,32 +3079,31 @@ async function deleteRecord(id, force = false) {
     if (!isConfirmed) return;
   }
 
-  // contact_fields の関連データも連動削除
+  db.run("BEGIN TRANSACTION;"); // 🔴 Start Transaction
   try {
+    // Delete related data
     db.run(
       "DELETE FROM contact_fields WHERE record_id = ? OR record_id IN (SELECT id FROM records WHERE parent_id = ?)",
-      [id, id],
+      [id, id]
     );
+    // Delete main data
+    db.run("DELETE FROM records WHERE id = ? OR parent_id = ?", [id, id]);
+
+    db.run("COMMIT;"); // 🔴 Commit only if both succeed
   } catch (e) {
-    console.warn("contact_fields cascade delete:", e);
+    db.run("ROLLBACK;"); // 🔴 Prevent data loss on failure
+    console.error("Failed to delete record:", e);
+    return;
   }
 
-  let stmt;
-  try {
-    stmt = db.prepare("DELETE FROM records WHERE id = ? OR parent_id = ?");
-    stmt.run([id, id]);
-  } finally {
-    if (stmt) stmt.free();
-  }
-
-  // ゾンビステートのクリーンアップ
+  // Cleanup zombie states
   collapsedBlocks.delete(id);
 
   setDirty(true);
   renderData();
 }
 
-// 手動でブロック内の明細を日付順に並べ替える
+// Manually sort details in block by date
 async function sortBlockByDate(blockId) {
   if (!db) return;
   const isConfirmed = await window.requestCustomPrompt(
@@ -3132,7 +3130,7 @@ async function sortBlockByDate(blockId) {
   items.sort((a, b) => {
     if (a.created_at < b.created_at) return -1;
     if (a.created_at > b.created_at) return 1;
-    return a.id - b.id; // 日付が同じなら元の順序を維持
+    return a.id - b.id; // Maintain original order if dates are the same
   });
 
   let updateStmt;
@@ -3154,107 +3152,84 @@ async function sortBlockByDate(blockId) {
   }
 }
 
-// 3.6 明細の複製
+// 3.6 Duplicate detail
 function duplicateRecord(id) {
   if (!db) return;
 
+  db.run("BEGIN TRANSACTION;"); // Start transaction
   let stmt;
   let insertStmt;
+  let fieldsStmt;
+  let insertFieldStmt;
   try {
     stmt = db.prepare(
-      "SELECT parent_id, memo, contact_info, role, created_at, sort_order, tags FROM records WHERE id = ?",
+      "SELECT parent_id, memo, contact_info, role, created_at, sort_order, tags FROM records WHERE id = ?"
     );
     stmt.bind([id]);
     if (stmt.step()) {
-      const [
-        parent_id,
-        memo,
-        contact_info,
-        role,
-        created_at,
-        sort_order,
-        tags,
-      ] = stmt.get();
+      const [parent_id, memo, contact_info, role, created_at, sort_order, tags] = stmt.get();
 
       insertStmt = db.prepare(
-        "INSERT INTO records (parent_id, memo, contact_info, role, created_at, sort_order, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO records (parent_id, memo, contact_info, role, created_at, sort_order, tags) VALUES (?, ?, ?, ?, ?, ?, ?)"
       );
-      insertStmt.run([
-        parent_id,
-        memo,
-        contact_info,
-        role,
-        created_at,
-        sort_order,
-        tags,
-      ]);
+      insertStmt.run([parent_id, memo, contact_info, role, created_at, sort_order, tags]);
 
-      // 新しく挿入されたレコードのIDを取得
       const res = db.exec("SELECT last_insert_rowid()");
       const newId = res[0]?.values?.[0]?.[0];
 
       if (!newId) {
-        console.error("複製先IDの取得に失敗しました");
-        return;
+        throw new Error("複製先IDの取得に失敗しました");
       }
 
-      // 💡 関連する contact_fields の詳細データをコピーする処理
-      let fieldsStmt;
-      let insertFieldStmt;
-      try {
-        fieldsStmt = db.prepare(
-          "SELECT field_key, field_value, field_type, sort_order FROM contact_fields WHERE record_id = ?",
-        );
-        fieldsStmt.bind([id]);
-        insertFieldStmt = db.prepare(
-          "INSERT INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)",
-        );
-        while (fieldsStmt.step()) {
-          const [fKey, fVal, fType, fSort] = fieldsStmt.get();
-          insertFieldStmt.run([newId, fKey, fVal, fType, fSort]);
-        }
-      } catch (e) {
-        console.error("Failed to duplicate contact_fields:", e);
-      } finally {
-        if (fieldsStmt) fieldsStmt.free();
-        if (insertFieldStmt) insertFieldStmt.free();
+      // Copy of contact_fields
+      fieldsStmt = db.prepare(
+        "SELECT field_key, field_value, field_type, sort_order FROM contact_fields WHERE record_id = ?"
+      );
+      fieldsStmt.bind([id]);
+      insertFieldStmt = db.prepare(
+        "INSERT INTO contact_fields (record_id, field_key, field_value, field_type, sort_order) VALUES (?, ?, ?, ?, ?)"
+      );
+      while (fieldsStmt.step()) {
+        const [fKey, fVal, fType, fSort] = fieldsStmt.get();
+        insertFieldStmt.run([newId, fKey, fVal, fType, fSort]);
       }
 
+      db.run("COMMIT;"); // Commit only on success
       setDirty(true);
       renderData();
 
-      showToast(
-        window._t("toast.duplicated"),
-        '<span class="text-green-400">📋</span>',
-      );
+      showToast(window._t("toast.duplicated"), '<span class="text-green-400">📋</span>');
 
-      // 画面の再描画が終わった直後に、新しい行の名前にフォーカスを当てて全選択する
       requestAnimationFrame(() => {
-        const newMemoEl = document.querySelector(
-          `span[data-id="${newId}"][data-field="memo"]`,
-        );
+        const newMemoEl = document.querySelector(`span[data-id="${newId}"][data-field="memo"]`);
         if (newMemoEl) {
           newMemoEl.scrollIntoView({ behavior: "smooth", block: "center" });
           newMemoEl.focus();
           window.getSelection().selectAllChildren(newMemoEl);
         }
       });
+    } else {
+      db.run("ROLLBACK;");
     }
   } catch (e) {
+    db.run("ROLLBACK;");
     console.error("Duplicate failed:", e);
+    showToast("Error", "⚠️", "error");
   } finally {
     if (stmt) stmt.free();
     if (insertStmt) insertStmt.free();
+    if (fieldsStmt) fieldsStmt.free();
+    if (insertFieldStmt) insertFieldStmt.free();
   }
 }
 
-// 4. 【核心部】 File System Access API を使った保存
+// 4. [Core] Save using File System Access API
 async function savePeopleFile(isSaveAs = false) {
   if (!db) return;
   if (isSaving) return;
   isSaving = true;
 
-  // 手動保存が走った場合、裏で待機中のオートセーブをキャンセルする
+  // Cancel pending autosave in the background if manual save is triggered
   if (draftTimer) {
     clearTimeout(draftTimer);
     draftTimer = null;
@@ -3298,7 +3273,7 @@ async function savePeopleFile(isSaveAs = false) {
     } else if (activeEl.id) {
       activeSelector = `#${activeEl.id}`;
     }
-    activeEl.blur(); // DBに値を確定させる
+    activeEl.blur(); // Commit value to DB
   }
 
   try {
@@ -3474,7 +3449,7 @@ async function savePeopleFile(isSaveAs = false) {
   }
 }
 
-// 5. 【核心部】 ファイル読み込みの共通処理
+// 5. [Core] Common logic for file reading
 async function processFileHandle(handle) {
   const statusEl = document.getElementById("status");
   if (statusEl) {
@@ -3490,7 +3465,7 @@ async function processFileHandle(handle) {
   try {
     const file = await handle.getFile();
 
-    // 巨大ファイルによるOOMクラッシュを防止
+    // Prevent OOM crash caused by massive files
     if (file.size > 50 * 1024 * 1024) {
       await window.requestCustomPrompt(
         window._t("error.fatal_title"),
@@ -3512,9 +3487,10 @@ async function processFileHandle(handle) {
       let password = document.getElementById("file-password").value;
       let success = false;
       let attempt = 0;
+      const encryptedOriginal = Uints; // Backup original
       while (!success) {
         try {
-          Uints = await decryptData(Uints, password);
+          Uints = await decryptData(encryptedOriginal, password);
           success = true;
           if (password) {
             document.getElementById("file-password").value = password;
@@ -3528,7 +3504,7 @@ async function processFileHandle(handle) {
           password = await requestPasswordPrompt(msg);
           if (password === null) {
             hideStatus();
-            return; // キャンセルして処理を中断
+            return; // Cancel and abort processing
           }
           attempt++;
         }
@@ -3551,14 +3527,14 @@ async function processFileHandle(handle) {
     db = newDb;
     migrateDatabase();
 
-    loadSettingsFromDb(); // ファイル固有の設定をUIに反映
+    loadSettingsFromDb(); // Reflect file-specific settings to UI
 
-    // 🎯 ファイル切り替え時のグローバル状態完全リセット（データ汚染防止）
+    // 🎯 Completely reset global state on file switch to prevent data corruption
     collapsedBlocks.clear();
     currentActiveTag = null;
     currentDisplayedTotal = 0;
 
-    // UI更新の前にハンドルをセットして正しいファイル名を反映させる
+    // Set handle before UI update to reflect correct filename
     fileHandle = handle;
     setDirty(false);
     await clearDraft();
@@ -3576,7 +3552,7 @@ async function processFileHandle(handle) {
   }
 }
 
-// 5.1 「開く」ボタンから File System Access API を使った読み込み
+// 5.1 Load using File System Access API from the 'Open' button
 async function loadPeopleFile() {
   if (isDirty) {
     const isConfirmed = await window.requestCustomPrompt(
@@ -3608,18 +3584,18 @@ async function loadPeopleFile() {
       console.log("Open picker cancelled.", err);
     }
   } else {
-    // Safari / Firefox 等のフォールバック (input type="file" を使う)
+    // Fallback for Safari / Firefox etc. (Using input type="file")
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".people,*/*";
-    input.style.display = "none"; // 💡 画面に見えないようにする
+    input.style.display = "none"; // 💡 Keep it invisible on screen
 
     input.onchange = async (e) => {
       const file = e.target.files[0];
-      document.body.removeChild(input); // 💡 処理が終わったらDOMから削除
+      document.body.removeChild(input); // 💡 Remove from DOM when processing is complete
       if (!file) return;
 
-      // ダミーハンドルを作って共通処理へ流す
+      // Create dummy handle and pass to common process
       const dummyHandle = {
         getFile: async () => file,
         name: file.name,
@@ -3628,17 +3604,17 @@ async function loadPeopleFile() {
       await processFileHandle(dummyHandle);
     };
 
-    // 💡 DOMに追加してからクリックしないとSafariで無視される
+    // 💡 Must be added to DOM before clicking, otherwise Safari ignores it
     document.body.appendChild(input);
     input.click();
   }
 }
 
-// エクスポートモーダルの制御
+// Export Modal Control
 function showExportModal() {
   const modal = document.getElementById("export-modal");
 
-  // 現在の抽出対象期間をモーダルに表示する
+  // Display current extraction target period in modal
   const infoEl = document.getElementById("export-period-info");
   if (infoEl) {
     let periodText = currentActiveTag
@@ -3676,7 +3652,7 @@ function executeExport() {
   exportCSV(format);
 }
 
-// 6. CSVエクスポート
+// 6. CSV Export
 function exportCSV(format = "vcard") {
   if (!db) return;
 
@@ -3697,7 +3673,7 @@ function exportCSV(format = "vcard") {
   }
 }
 
-// --- vCard 生成の共通クレンジングロジック ---
+// --- Shared Cleansing Logic for vCard Generation ---
 function generateVCardData(items) {
   let vcardData = "";
   items.forEach((item) => {
@@ -3706,7 +3682,7 @@ function generateVCardData(items) {
     const contactInfo = item.contact_info || "";
     const org = item.org || "";
 
-    // 最強のクレンジング機能: ハッシュタグ(#幹事 など)を氏名や組織名から除去
+    // Supreme cleansing function: Remove hashtags (like #Organizer) from names and organizations
     let cleanName = rawName
       .replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "")
       .trim();
@@ -3714,7 +3690,7 @@ function generateVCardData(items) {
     let cleanRole = role || "";
     let cleanContact = contactInfo || "";
 
-    // vCardフォーマット破壊を防ぐため、すべての値から改行を除去
+    // Remove newlines from all values to prevent vCard format corruption
     cleanName = cleanName.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
     cleanOrg = cleanOrg.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
     cleanRole = cleanRole.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
@@ -3730,13 +3706,8 @@ function generateVCardData(items) {
       }
     }
 
-    // 両方のフィールドのタグをマージして出力
-    const allTags = [
-      ...new Set([
-        ...extractRecordTags(rawName, item.item_tags),
-        ...extractRecordTags(org, item.org_tags)
-      ]),
-    ];
+    // Merge tags from both fields and output
+    const allTags = getMergedTags(rawName, item.item_tags, org, item.org_tags);
 
     const fields = item.fields || [];
     let fName = "",
@@ -3798,7 +3769,7 @@ function generateVCardData(items) {
     if (orgLine) vcardData += `ORG:${orgLine}\r\n`;
     if (cleanRole) vcardData += `TITLE:${cleanRole}\r\n`;
 
-    // ★ OSの連絡先に自動でグループ分けさせるマジック
+    // ★ Magic to automatically group OS contacts
     if (allTags.length > 0) {
       vcardData += `CATEGORIES:${allTags.join(",")}\r\n`;
     }
@@ -3807,11 +3778,15 @@ function generateVCardData(items) {
       let addresses = {};
       fields.forEach((f) => {
         if (!f.field_value) return;
-        let v = f.field_value;
+        // 🎯 Fix: Force cast to string to prevent .replace() crash when SQLite returns a numeric type
+        let v = String(f.field_value);
         // Prevent format corruption by removing newlines from fields (except notes)
         if (f.field_key !== "note") {
           v = v.replace(/[\r\n]+/g, " ");
-          v = v.replace(/([;,])/g, "\\$1");
+          // Exempt URLs from escaping because they contain legitimate symbols like ; and ,
+          if (f.field_key !== "url") {
+            v = v.replace(/([;,])/g, "\\$1");
+          }
         }
         const t = (f.field_type || "other").toUpperCase();
 
@@ -3901,12 +3876,12 @@ function triggerVCardDownload(vcardData, filenameBase) {
   URL.revokeObjectURL(url);
 }
 
-// 6.5 全件vCardエクスポート
+// 6.5 Export all to vCard
 function exportVCard() {
   if (!db) return;
 
-  // c.id, memo=氏名, role=役割, contact_info=電話・Email, parent.memo=会社・チーム名, タグ情報
-  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC`;
+  // c.id, memo=Name, role=Role, contact_info=Phone/Email, parent.memo=Company/Team Name, Tag info
+  let query = `SELECT c.id AS id, c.memo AS name, c.role AS role, c.contact_info AS contact_info, p.memo AS organization, c.tags AS item_tags, p.tags AS org_tags, c.created_at AS created_at FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL ORDER BY c.sort_order ASC, c.id ASC`;
 
   const values = [];
   let exportStmt;
@@ -3932,6 +3907,7 @@ function exportVCard() {
     org: row[4],
     item_tags: row[5],
     org_tags: row[6],
+    created_at: row[7],
     fields: getContactFields(row[0]),
   }));
 
@@ -3939,12 +3915,7 @@ function exportVCard() {
   if (currentActiveTag) {
     const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
     filteredItems = items.filter((item) => {
-      const allTags = [
-        ...new Set([
-          ...extractRecordTags(item.name, item.item_tags),
-          ...extractRecordTags(item.org, item.org_tags)
-        ]),
-      ];
+      const allTags = getMergedTags(item.name, item.item_tags, item.org, item.org_tags);
       return allTags.includes(activeTagRaw);
     });
   }
@@ -3958,7 +3929,7 @@ function exportVCard() {
   triggerVCardDownload(vcardData, "contacts_all");
 }
 
-// 特定のタグだけのメンバーをエクスポート
+// Export members with specific tags only
 async function exportTagVCard(tag, dataItems) {
   if (!dataItems || dataItems.length === 0) return;
   const isConfirmed = await window.requestCustomPrompt(
@@ -3969,21 +3940,22 @@ async function exportTagVCard(tag, dataItems) {
   );
   if (!isConfirmed) return;
 
-  // 各アイテムに詳細フィールドを付与
+  // Attach detail fields to each item
   const enrichedItems = dataItems.map((item) => ({
     ...item,
     fields: getContactFields(item.id),
   }));
 
   const vcardData = generateVCardData(enrichedItems);
-  const safeTag = tag.replace(/[\\/:*?"<>|#＃\r\n]/g, "_"); // OSでファイル名に使えない禁則文字のみを除去
+  // 💡 Remove leading # and replace remaining forbidden characters with _ for a clean filename (e.g., contacts_Business.vcf)
+  const safeTag = tag.replace(/^[#＃]/, "").replace(/[\\/:*?"<>|\r\n]/g, "_");
   triggerVCardDownload(vcardData, `contacts_${safeTag}`);
 }
 
-// --- QR Coder用 (vCard形式) CSVエクスポート ---
+// --- CSV Export for QR Coder (vCard format) ---
 function exportQRCoderCSV() {
   if (!db) return;
-  // QR CoderのvCardタイプで必須・任意のヘッダー
+  // Required/Optional headers for QR Coder vCard type
   const headers = ["Name", "Memo", "Tags", "Last Name", "First Name", "Company", "Phone", "Email", "Address"];
   const rows = [headers];
 
@@ -3997,12 +3969,7 @@ function exportQRCoderCSV() {
 
       if (currentActiveTag) {
         const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-        const allTags = [
-          ...new Set([
-            ...extractRecordTags(memo, itemTags),
-            ...extractRecordTags(org, orgTags)
-          ]),
-        ];
+        const allTags = getMergedTags(memo, itemTags, org, orgTags);
 
         if (!allTags.includes(activeTagRaw)) continue;
       }
@@ -4019,9 +3986,9 @@ function exportQRCoderCSV() {
       lastName = getField("family_name");
       firstName = getField("given_name");
 
-      // 名前が分割されていない場合のフォールバック
+      // Fallback when name is not split
       if (!lastName && !firstName && memo) {
-        // タグを除去したクリーンな名前
+        // Clean name with tags removed
         const cleanName = memo.replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "").trim();
         const parts = cleanName.split(/[\s　]+/);
         if (parts.length > 1) {
@@ -4044,9 +4011,9 @@ function exportQRCoderCSV() {
       const country = getField("addr_country");
       address = [postal, region, city, street, country].filter(Boolean).join(" ");
 
-      const itemFieldTags = (itemTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
-      const orgFieldTags = (orgTags || "").split(/[,、\s]+/).map(t => t.trim()).filter(Boolean);
-      const finalTags = [...new Set([...itemFieldTags, ...orgFieldTags])].join(", ");
+      // Unify logic with vCard output to ensure inline hashtags are never missed
+      const allTags = getMergedTags(memo, itemTags, org, orgTags);
+      const finalTags = allTags.join(", ");
 
       const row = [
         memo ? memo.replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "").trim() : "", // Name
@@ -4075,26 +4042,35 @@ function exportQRCoderCSV() {
       r
         .map((v) => {
           let cell = String(v || "");
+          // 🔴 CSV Injection (Formula Injection) Protection
+          if (/^[=+\-@]/.test(cell)) {
+            cell = "'" + cell;
+          }
           return `"${cell.replace(/"/g, '""')}"`;
         })
         .join(","),
     )
     .join("\r\n");
 
-  downloadCSVFile(csv, "qrcoder_vcard");
+  let baseName = "qrcoder_vcard";
+  if (currentActiveTag) {
+    const safeTag = currentActiveTag.replace(/^[#＃]/, "").replace(/[\\/:*?"<>|\r\n]/g, "_");
+    baseName += `_${safeTag}`;
+  }
+  downloadCSVFile(csv, baseName);
   showToast(
     window._t("toast.qrcoder_csv", rows.length - 1),
     '<span class="text-green-400">✔</span>',
   );
 }
 
-// 7. CSVインポート
+// 7. CSV Import
 async function importCSV(event) {
   const file = event.target.files[0];
-  const inputElement = event.target; // 同期的に退避させておく
+  const inputElement = event.target; // Backup synchronously
   if (!file) return;
 
-  // 5MB (5 * 1024 * 1024 bytes) を超える場合は警告してクラッシュを防ぐ
+  // Warn and prevent crash if exceeding 5MB (5 * 1024 * 1024 bytes)
   if (file.size > 5242880) {
     await window.requestCustomPrompt(
       window._t("error.fatal_title"),
@@ -4108,7 +4084,7 @@ async function importCSV(event) {
 
   const reader = new FileReader();
   reader.onload = function (e) {
-    pendingCSVBuffer = e.target.result; // ArrayBufferを保存
+    pendingCSVBuffer = e.target.result; // Save ArrayBuffer
     showCSVModal();
     inputElement.value = "";
   };
@@ -4120,17 +4096,17 @@ async function importCSV(event) {
     );
     inputElement.value = "";
   };
-  reader.readAsArrayBuffer(file); // ArrayBufferとして読み込む
+  reader.readAsArrayBuffer(file); // Read as ArrayBuffer
 }
 
-// CSVマッピングモーダルを表示
+// Show CSV mapping modal
 function showCSVModal() {
   const modal = document.getElementById("csv-mapping-modal");
   modal.classList.remove("hidden");
   modal.classList.add("flex");
   lockScroll();
   toggleMainUI(true);
-  updateCSVPreview(); // プレビューとマッピングを初期描画
+  updateCSVPreview(); // Initial rendering of preview and mapping
 
   setTimeout(() => {
     const firstInput = document.getElementById("map-date");
@@ -4138,7 +4114,7 @@ function showCSVModal() {
   }, 100);
 }
 
-// CSVプレビューとマッピングを更新する (文字コード変更時にも呼ばれる)
+// Update CSV preview and mapping (also called when character encoding changes)
 function updateCSVPreview() {
   if (!pendingCSVBuffer) return;
 
@@ -4149,7 +4125,7 @@ function updateCSVPreview() {
     const decoder = new TextDecoder(encoding, { fatal: true });
     const text = decoder.decode(pendingCSVBuffer);
 
-    pendingCSVData = []; // グローバル変数を更新
+    pendingCSVData = []; // Update global variable
     let currentLine = [];
     let inQuotes = false;
     let cellStart = 0;
@@ -4176,7 +4152,7 @@ function updateCSVPreview() {
 
       if (char === '"' && nextChar === '"') {
         hasEscapedQuote = true;
-        i++; // エスケープされたクオートをスキップ
+        i++; // Skip escaped quotes
       } else if (char === '"') {
         inQuotes = !inQuotes;
       } else if (char === "," && !inQuotes) {
@@ -4185,7 +4161,7 @@ function updateCSVPreview() {
         hasEscapedQuote = false;
       } else if ((char === "\n" || char === "\r") && !inQuotes) {
         let lineEnd = i;
-        if (char === "\r" && nextChar === "\n") i++; // \r\n の対応
+        if (char === "\r" && nextChar === "\n") i++; // Support for \r\n
 
         currentLine.push(
           extractCSVCell(text, cellStart, lineEnd, hasEscapedQuote),
@@ -4197,7 +4173,7 @@ function updateCSVPreview() {
       }
     }
 
-    // 最後のセルをプッシュ
+    // Push last cell
     if (cellStart <= text.length) {
       currentLine.push(
         extractCSVCell(text, cellStart, text.length, hasEscapedQuote),
@@ -4205,7 +4181,7 @@ function updateCSVPreview() {
       pendingCSVData.push(currentLine);
     }
 
-    // 最終行の空行を無視
+    // Ignore empty line at end
     if (
       pendingCSVData.length > 0 &&
       pendingCSVData[pendingCSVData.length - 1].length === 1 &&
@@ -4214,20 +4190,20 @@ function updateCSVPreview() {
       pendingCSVData.pop();
     }
 
-    // QR Coderの履歴CSVかどうかを自動検知
+    // Automatically detect if it's a QR Coder history CSV
     if (pendingCSVData.length > 0) {
       const headers = pendingCSVData[0].map(h => String(h || "").trim());
       const isQrHistory = headers.includes("QR ID") && headers.includes("Data Content");
       if (isQrHistory) {
         const dataRows = pendingCSVData.slice(1);
-        closeCSVModal(); // 先にデータを退避してからマッピング用のモーダルを閉じる
+        closeCSVModal(); // Evacuate data first before closing mapping modal
         executeQRCoderHistoryImport(dataRows, headers);
         return;
       }
     }
 
   } catch (e) {
-    pendingCSVData = []; // エラー時はデータをクリア
+    pendingCSVData = []; // Clear data on error
     const unselectedHtml = `<option value="-1">${window._t("label.unselected")}</option>`;
     document.getElementById("map-date").innerHTML = unselectedHtml;
     if (document.getElementById("map-role"))
@@ -4240,7 +4216,7 @@ function updateCSVPreview() {
     return;
   }
 
-  // --- UI更新 ---
+  // --- UI Update ---
   const mapDate = document.getElementById("map-date");
   const mapRole = document.getElementById("map-role");
   const mapMemo = document.getElementById("map-memo");
@@ -4274,9 +4250,9 @@ function updateCSVPreview() {
   mapMemo.value = oldVals.memo;
   mapContact.value = oldVals.contact;
 
-  // 日付と役割は任意なので、列数が多くても勝手に割り当てない
-  if (mapMemo.selectedIndex < 1 && maxCols >= 1) mapMemo.value = "0"; // 1列目は名前にしておくのが王道
-  if (mapContact.selectedIndex < 1 && maxCols >= 2) mapContact.value = "1"; // 2列目を連絡先に
+  // Date and role are optional, so do not arbitrarily assign them even if there are many columns
+  if (mapMemo.selectedIndex < 1 && maxCols >= 1) mapMemo.value = "0"; // Column 1 is typically the name
+  if (mapContact.selectedIndex < 1 && maxCols >= 2) mapContact.value = "1"; // Set column 2 to contact
 
   renderCSVPreview();
 }
@@ -4298,7 +4274,7 @@ function renderCSVPreview() {
     pendingCSVData.reduce((max, row) => Math.max(max, row.length), 0),
   );
 
-  // ヘッダーの構築
+  // Build header
   let thHtml = `<th class="px-3 py-2 w-8 text-center border-r border-gray-200">${window._t("label.row")}</th>`;
   for (let i = 0; i < maxCols; i++) {
     let label = "";
@@ -4325,29 +4301,31 @@ function renderCSVPreview() {
   }
   previewHead.innerHTML = `<tr>${thHtml}</tr>`;
 
-  // プレビューの構築 (安全のためHTMLエスケープを行う)
+  // Build preview (Perform HTML escape for safety)
   previewBody.innerHTML = "";
   const skipRowsInput = document.getElementById("csv-skip-rows");
   const skipRows = skipRowsInput
     ? Math.max(0, parseInt(skipRowsInput.value, 10) || 0)
     : 0;
-  const previewRows = pendingCSVData.slice(skipRows, skipRows + 4); // スキップ行を考慮して最初の4行をプレビュー
+  const previewRows = pendingCSVData.slice(skipRows, skipRows + 4); // Preview the first 4 lines taking skipped lines into account
   previewRows.forEach((row, rowIndex) => {
     const tr = document.createElement("tr");
     tr.className = rowIndex === 0 ? "bg-slate-50" : "bg-white";
     let tdHtml = `<td class="px-3 py-2 font-bold text-slate-400 border-r border-slate-200 w-8 text-center">${skipRows + rowIndex + 1}</td>`;
     for (let i = 0; i < maxCols; i++) {
       const val = row[i] !== undefined ? row[i] : "";
-      // 長すぎる文字列は省略して表示し、title属性で全文を確認できるようにする
+      // Truncate excessively long strings and allow checking the full text via title attribute
       const displayVal = val.length > 20 ? val.substring(0, 20) + "..." : val;
 
-      // マッピングされている列はハイライト
+      // Highlight mapped columns
       let highlightClass = "";
       if (i === mapDate || i === mapRole || i === mapMemo || i === mapContact) {
         highlightClass = "text-slate-900 font-medium bg-slate-50/50";
       }
 
-      tdHtml += `<td class="px-3 py-2 truncate max-w-[150px] ${highlightClass}" title="${escapeHtml(val)}">${escapeHtml(displayVal)}</td>`;
+      tdHtml += `<td class="px-3 py-2 ${highlightClass}" title="${escapeHtml(val)}">
+             <div class="truncate max-w-[150px]">${escapeHtml(displayVal)}</div>
+           </td>`;
     }
     tr.innerHTML = tdHtml;
     previewBody.appendChild(tr);
@@ -4382,7 +4360,7 @@ async function executeCSVImport() {
     return;
   }
 
-  // モーダルを閉じると pendingCSVData がクリアされてしまうため、退避しておく
+  // Save pendingCSVData aside since closing the modal clears it
   const dataToImport = [...pendingCSVData];
 
   closeCSVModal();
@@ -4460,20 +4438,20 @@ async function executeCSVImport() {
           ? cols[mapContact].trim()
           : "";
 
-      // 氏名(memo) か 連絡先(contactInfo) のいずれかが入力されていればOK
+      // OK if either Name (memo) or Contact Info (contactInfo) is filled
       if (memo !== "" || contactInfo !== "") {
         if (checkStmt) {
           checkStmt.bind([memo, contactInfo]);
           if (checkStmt.step()) {
             checkStmt.reset();
             skipCount++;
-            continue; // 重複しているのでスキップ！
+            continue; // Skip because it's a duplicate!
           }
           checkStmt.reset();
         }
 
         let parsedDate = new Date(dateStr);
-        // 💡 修正: 時刻付きデータでSafariがクラッシュするのを防ぐため、日付部分のみを抽出
+        // 💡 Fix: Extract only the date part to prevent Safari from crashing on timestamped data
         const dateMatch = dateStr ? dateStr.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) : null;
         if (dateMatch) {
           parsedDate = new Date(
@@ -4496,7 +4474,7 @@ async function executeCSVImport() {
 
         let finalDateStr = "";
         if (dateStr && !isNaN(parsedDate.getTime())) {
-          // タイムゾーンによる日付のズレを防ぐため、ローカル時間のまま手動で文字列化
+          // Manually stringify in local time to prevent date shift caused by timezones
           finalDateStr = getLocalTimeFormatted(parsedDate, "dateOnly");
         } else {
           finalDateStr = getLocalTimeFormatted(new Date(), "dateOnly");
@@ -4526,10 +4504,10 @@ async function executeCSVImport() {
     db.run("COMMIT;");
     setDirty(true);
 
-    // インポートしたブロックは初期状態で折りたたんでおく（見やすさへの配慮）
+    // Keep imported blocks collapsed initially (for better readability)
     collapsedBlocks.add(parentId);
 
-    // インポートしたデータが見えなくなるのを防ぐため、フィルターを解除
+    // Clear filters to prevent imported data from disappearing
     currentActiveTag = null;
 
     const msg =
@@ -4548,7 +4526,7 @@ async function executeCSVImport() {
   renderData();
 }
 
-// --- QR Coder履歴CSVのマージ処理 ---
+// --- Merge processing for QR Coder history CSV ---
 async function executeQRCoderHistoryImport(data, headers) {
   const isConfirmed = await window.requestCustomPrompt(
     window._t("confirm.title"),
@@ -4578,7 +4556,7 @@ async function executeQRCoderHistoryImport(data, headers) {
   let findStmt = null;
 
   try {
-    // 名前が完全一致するものを探す（空白やハッシュタグを除去したベース名で比較するのが安全ですが、今回は高速化のためmemoと直接比較）
+    // Search for exact name match (Comparing base names without spaces/hashtags is safer, but directly comparing with memo here for speed)
     findStmt = db.prepare("SELECT id, tags FROM records WHERE parent_id IS NOT NULL AND memo = ?");
 
     for (const row of data) {
@@ -4603,7 +4581,7 @@ async function executeQRCoderHistoryImport(data, headers) {
           const recId = match[0];
           const existingTags = match[1] ? match[1].split(/[,、\s]+/).map(t => t.trim()).filter(Boolean) : [];
 
-          // 履歴をメモに追記
+          // Append history to memo
           const fields = getContactFields(recId);
           const existingNote = fields.find(f => f.field_key === "note");
           let newNoteText = historyText;
@@ -4615,7 +4593,7 @@ async function executeQRCoderHistoryImport(data, headers) {
           db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = 'note'", [recId]);
           setContactField(recId, "note", newNoteText, "other", 0);
 
-          // タグをマージ（言語に応じてタグ名を変える）
+          // Merge tags (change tag names depending on language)
           const exportTag = window._t("tag.qr_exported");
           const mergedTags = [...new Set([...existingTags, ...additionalTags, exportTag])];
           db.run("UPDATE records SET tags = ? WHERE id = ?", [mergedTags.join(', '), recId]);
@@ -4639,7 +4617,7 @@ async function executeQRCoderHistoryImport(data, headers) {
   }
 }
 
-// 8. AI連携用のプロンプトコピー機能 (BYO-AIアプローチ)
+// 8. Prompt copy feature for AI integration (BYO-AI approach)
 function copyAIPrompt() {
   const promptText = window._t("prompt.ai_format");
 
@@ -4653,7 +4631,7 @@ function copyAIPrompt() {
     });
 }
 
-// 8.5 データ一覧を Markdown 形式でコピーする機能
+// 8.5 Feature to copy data list in Markdown format
 function copyAsMarkdown() {
   if (!db) return;
   const res = db.exec(
@@ -4669,12 +4647,7 @@ function copyAsMarkdown() {
   res[0].values.forEach(([name, org, role, contact, itemTags, orgTags]) => {
     if (currentActiveTag) {
       const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-      const allTags = [
-        ...new Set([
-          ...extractRecordTags(name, itemTags),
-          ...extractRecordTags(org, orgTags)
-        ]),
-      ];
+      const allTags = getMergedTags(name, itemTags, org, orgTags);
 
       if (!allTags.includes(activeTagRaw)) return;
     }
@@ -4697,7 +4670,7 @@ function copyAsMarkdown() {
     .catch((err) => console.error("コピーに失敗しました", err));
 }
 
-// --- 連絡先詳細編集モーダル ---
+// --- Contact Detail Edit Modal ---
 const DETAIL_FIELD_MAP = {
   "detail-family-name": "family_name",
   "detail-given-name": "given_name",
@@ -4724,7 +4697,7 @@ function showContactDetail(recordId) {
   const modal = document.getElementById("contact-detail-modal");
   document.getElementById("detail-record-id").value = recordId;
 
-  // タイトルに名前を表示
+  // Show name in title
   let name = "";
   let stmt;
   try {
@@ -4738,14 +4711,17 @@ function showContactDetail(recordId) {
     name || window._t("detail.title");
 
   let orgName = "";
+  let pStmt;
   try {
-    let pStmt = db.prepare(
+    pStmt = db.prepare(
       "SELECT p.memo FROM records c JOIN records p ON c.parent_id = p.id WHERE c.id = ?",
     );
     pStmt.bind([recordId]);
     if (pStmt.step()) orgName = pStmt.get()[0] || "";
-    pStmt.free();
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    if (pStmt) pStmt.free();
+  }
 
   const companyInput = document.getElementById("detail-company");
   if (companyInput) {
@@ -4754,7 +4730,7 @@ function showContactDetail(recordId) {
 
   const fields = getContactFields(recordId);
 
-  // 単一フィールドをセット
+  // Set single field
   for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
     const el = document.getElementById(elId);
     if (!el) continue;
@@ -4763,7 +4739,7 @@ function showContactDetail(recordId) {
     else el.value = f?.field_value || "";
   }
 
-  // records テーブルのメインデータ（一覧で入力したもの）を取得
+  // Get main data from records table (entered in the list)
   let mainContactInfo = "";
   let mainRole = "";
   let stmtSync;
@@ -4781,7 +4757,7 @@ function showContactDetail(recordId) {
     if (stmtSync) stmtSync.free();
   }
 
-  // 役割/役職の同期
+  // Sync role/job title
   const roleEl = document.getElementById("detail-job-title");
   if (!roleEl.value && mainRole) {
     roleEl.value = mainRole;
@@ -4790,26 +4766,26 @@ function showContactDetail(recordId) {
   const fNameEl = document.getElementById("detail-family-name");
   const gNameEl = document.getElementById("detail-given-name");
 
-  // 姓も名も空欄で、かつメインの名前(records.memo)が存在する場合のみ自動分割
+  // Automatically split only if both first and last names are empty and main name (records.memo) exists
   if (!fNameEl.value && !gNameEl.value && name) {
-    const parts = name.trim().split(/[\s　]+/); // 半角・全角スペースで分割
+    const parts = name.trim().split(/[\s　]+/); // Split by half/full-width space
     if (parts.length > 1) {
       fNameEl.value = parts[0];
       gNameEl.value = parts.slice(1).join(" ");
     } else {
-      fNameEl.value = name; // スペースが無ければ姓に全振り
+      fNameEl.value = name; // Allocate entirely to last name if no space
     }
   }
 
-  // 電話番号の複数行を構築
+  // Construct multiple lines for phone number
   const phonesContainer = document.getElementById("detail-phones");
   phonesContainer.innerHTML = "";
   const phones = fields.filter((f) => f.field_key === "phone");
   const emails = fields.filter((f) => f.field_key === "email");
 
-  // 連絡先の同期 (詳細にデータが1つも無い場合、メインのデータを自動分類してセット)
+  // Contact Sync (If no detail data exists, auto-categorize and set main data)
   if (phones.length === 0 && emails.length === 0 && mainContactInfo) {
-    // Smart Paste の "Email / Phone" 形式を分離して取り込む
+    // Split and import 'Email / Phone' format of Smart Paste
     const parts = mainContactInfo.split(/\s+\/\s+/);
     parts.forEach(part => {
       const cleanPart = part.trim();
@@ -4822,10 +4798,10 @@ function showContactDetail(recordId) {
   }
 
   if (phones.length === 0)
-    addDetailPhoneRow("", "mobile", false); // 最低1行
+    addDetailPhoneRow("", "mobile", false); // At least 1 line
   else phones.forEach((p) => addDetailPhoneRow(p.field_value, p.field_type, false));
 
-  // メールの複数行を構築
+  // Construct multiple lines for email
   const emailsContainer = document.getElementById("detail-emails");
   emailsContainer.innerHTML = "";
   if (emails.length === 0) addDetailEmailRow("", "work", false);
@@ -4863,7 +4839,7 @@ async function closeContactDetail(checkChanges = true) {
         "",
         "confirm"
       );
-      if (!isConfirmed) return; // キャンセルされたら閉じない
+      if (!isConfirmed) return; // Do not close if canceled
     }
   }
 
@@ -4889,7 +4865,7 @@ function addDetailPhoneRow(value = "", type = "mobile", autoFocus = true) {
       <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.home")}</option>
       <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="tel" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
+    <input type="tel" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -4913,7 +4889,7 @@ function addDetailEmailRow(value = "", type = "work", autoFocus = true) {
       <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.personal")}</option>
       <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="email" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
+    <input type="email" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -4931,6 +4907,13 @@ let isSavingDetail = false;
 
 function saveContactDetail() {
   if (isSavingDetail) return;
+
+  // 🎯 Add: Blur any currently focused element to commit and restore its value
+  const activeEl = document.activeElement;
+  if (activeEl && typeof activeEl.blur === 'function' && activeEl.closest('#contact-detail-modal')) {
+    activeEl.blur();
+  }
+
   const currentDataSnapshot = JSON.stringify(getDetailFormData());
   if (originalDetailDataSnapshot === currentDataSnapshot) {
     closeContactDetail();
@@ -4938,99 +4921,101 @@ function saveContactDetail() {
   }
 
   isSavingDetail = true;
+  db.run("BEGIN TRANSACTION;"); // 🔴 Start Transaction
 
   try {
 
-  const recordId = parseInt(
-    document.getElementById("detail-record-id").value,
-    10,
-  );
-  if (!recordId || !db) return;
+    const recordId = parseInt(
+      document.getElementById("detail-record-id").value,
+      10,
+    );
+    if (!recordId || !db) throw new Error("Invalid ID or DB");
 
-  // 💡 修正: 既存のフィールドを全削除するのではなく、モーダルで扱う項目のみを削除対象にし、未知の拡張データを保護する
-  const targetKeys = [...Object.values(DETAIL_FIELD_MAP), "phone", "email"];
-  const placeholders = targetKeys.map(() => "?").join(",");
-  try {
+    // 💡 Fix: Only delete items handled by the modal, protecting unknown extended data instead of deleting all existing fields
+    const targetKeys = [...Object.values(DETAIL_FIELD_MAP), "phone", "email"];
+    const placeholders = targetKeys.map(() => "?").join(",");
     db.run(`DELETE FROM contact_fields WHERE record_id = ? AND field_key IN (${placeholders})`, [recordId, ...targetKeys]);
-  } catch (e) {
-    console.error("Failed to delete specific contact fields:", e);
-  }
 
-  // 単一フィールドを保存
-  for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
-    const el = document.getElementById(elId);
-    if (!el) continue;
-    const val = el.value?.trim();
-    if (val) {
-      const ft = fieldKey.startsWith("addr_") ? "home" : "other";
-      setContactField(recordId, fieldKey, val, ft, 0);
+    // Save single field
+    for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
+      const el = document.getElementById(elId);
+      if (!el) continue;
+      const val = el.value?.trim();
+      if (val) {
+        const ft = fieldKey.startsWith("addr_") ? "home" : "other";
+        setContactField(recordId, fieldKey, val, ft, 0);
+      }
     }
-  }
 
-  // 電話番号を保存
-  const phoneRows = document.querySelectorAll("#detail-phones > div");
-  phoneRows.forEach((row, i) => {
-    const val = row.querySelector(".detail-phone-value")?.value?.trim();
-    const type = row.querySelector(".detail-phone-type")?.value || "mobile";
-    if (val) setContactField(recordId, "phone", val, type, i);
-  });
+    // Save phone number
+    const phoneRows = document.querySelectorAll("#detail-phones > div");
+    phoneRows.forEach((row, i) => {
+      const val = row.querySelector(".detail-phone-value")?.value?.trim();
+      const type = row.querySelector(".detail-phone-type")?.value || "mobile";
+      if (val) setContactField(recordId, "phone", val, type, i);
+    });
 
-  // メールを保存
-  const emailRows = document.querySelectorAll("#detail-emails > div");
-  emailRows.forEach((row, i) => {
-    const val = row.querySelector(".detail-email-value")?.value?.trim();
-    const type = row.querySelector(".detail-email-type")?.value || "work";
-    if (val) setContactField(recordId, "email", val, type, i);
-  });
+    // Save email
+    const emailRows = document.querySelectorAll("#detail-emails > div");
+    emailRows.forEach((row, i) => {
+      const val = row.querySelector(".detail-email-value")?.value?.trim();
+      const type = row.querySelector(".detail-email-type")?.value || "work";
+      if (val) setContactField(recordId, "email", val, type, i);
+    });
 
-  // records.contact_info も更新（メインの連絡先情報を同期）
-  const firstPhone = document
-    .querySelector("#detail-phones .detail-phone-value")
-    ?.value?.trim();
-  const firstEmail = document
-    .querySelector("#detail-emails .detail-email-value")
-    ?.value?.trim();
-  const mainContact = firstEmail || firstPhone || null;
-  try {
-    db.run("UPDATE records SET contact_info = ? WHERE id = ?", [
-      mainContact,
-      recordId,
-    ]);
-  } catch (e) {}
+    // Update records.contact_info too (Sync main contact info)
+    const firstPhone = document
+      .querySelector("#detail-phones .detail-phone-value")
+      ?.value?.trim();
+    const firstEmail = document
+      .querySelector("#detail-emails .detail-email-value")
+      ?.value?.trim();
+    const mainContact = firstEmail || firstPhone || null;
+    try {
+      db.run("UPDATE records SET contact_info = ? WHERE id = ?", [
+        mainContact,
+        recordId,
+      ]);
+    } catch (e) {}
 
-  // records.role も同期
-  const jobTitle = document.getElementById("detail-job-title")?.value?.trim();
-  try {
-    db.run("UPDATE records SET role = ? WHERE id = ?", [
-      jobTitle || null,
-      recordId,
-    ]);
-  } catch (e) {}
+    // Sync records.role as well
+    const jobTitle = document.getElementById("detail-job-title")?.value?.trim();
+    try {
+      db.run("UPDATE records SET role = ? WHERE id = ?", [
+        jobTitle || null,
+        recordId,
+      ]);
+    } catch (e) {}
 
-  // 姓・名からフルネームを生成して records.memo を同期
-  const familyName =
-    document.getElementById("detail-family-name")?.value?.trim() || "";
-  const givenName =
-    document.getElementById("detail-given-name")?.value?.trim() || "";
-  const fullName = (familyName + " " + givenName).trim();
-  try {
-    db.run("UPDATE records SET memo = ? WHERE id = ?", [
-      fullName || null,
-      recordId,
-    ]);
-  } catch (e) {}
+    // Generate full name from last/first name and sync with records.memo
+    const familyName =
+      document.getElementById("detail-family-name")?.value?.trim() || "";
+    const givenName =
+      document.getElementById("detail-given-name")?.value?.trim() || "";
+    const fullName = (familyName + " " + givenName).trim();
+    try {
+      db.run("UPDATE records SET memo = ? WHERE id = ?", [
+        fullName || null,
+        recordId,
+      ]);
+    } catch (e) {}
 
-  setDirty(true);
-  closeContactDetail(false);
-  renderData();
-  showToast(window._t("toast.detail_saved"), '<span class="text-green-400">✔</span>');
+    db.run("COMMIT;"); // 🔴 Commit only if all succeed
+    setDirty(true);
+    closeContactDetail(false);
+    renderData();
+    showToast(window._t("toast.detail_saved"), '<span class="text-green-400">✔</span>');
 
+  } catch (e) {
+    db.run("ROLLBACK;"); // 🔴 Revert to original state on failure
+    console.error("Failed to save contact details:", e);
+    showToast("Error", "⚠️", "error");
   } finally {
     isSavingDetail = false;
   }
 }
 
-// --- vcfファイル入力ハンドラー ---
+// --- vcf File Input Handler ---
 function handleVCFInput(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -5038,7 +5023,7 @@ function handleVCFInput(event) {
   event.target.value = "";
 }
 
-// --- 汎用プラットフォーム(Google/Outlook)向けCSVエクスポート ---
+// --- CSV Export for General Platforms (Google/Outlook) ---
 function exportPlatformCSV(platform) {
   if (!db) return;
   const isGoogle = platform === "google";
@@ -5056,12 +5041,7 @@ function exportPlatformCSV(platform) {
 
       if (currentActiveTag) {
         const activeTagRaw = currentActiveTag.replace(/^[#＃]/, "");
-        const allTags = [
-          ...new Set([
-            ...extractRecordTags(memo, itemTags),
-            ...extractRecordTags(org, orgTags)
-          ]),
-        ];
+        const allTags = getMergedTags(memo, itemTags, org, orgTags);
 
         if (!allTags.includes(activeTagRaw)) continue;
       }
@@ -5119,21 +5099,30 @@ function exportPlatformCSV(platform) {
     .map((r) =>
       r
         .map((v) => {
-          // 明示的に文字列(String)にキャストし、TypeErrorを防ぐ
+          // Explicitly cast to String to prevent TypeError
           let cell = String(v || "");
+          // 🔴 CSV Injection (Formula Injection) Protection
+          if (/^[=+\-@]/.test(cell)) {
+            cell = "'" + cell;
+          }
           return `"${cell.replace(/"/g, '""')}"`;
         })
         .join(","),
     )
     .join("\r\n");
-  downloadCSVFile(csv, isGoogle ? "google_contacts" : "outlook_contacts");
+  let baseName = isGoogle ? "google_contacts" : "outlook_contacts";
+  if (currentActiveTag) {
+    const safeTag = currentActiveTag.replace(/^[#＃]/, "").replace(/[\\/:*?"<>|\r\n]/g, "_");
+    baseName += `_${safeTag}`;
+  }
+  downloadCSVFile(csv, baseName);
   showToast(
     window._t(isGoogle ? "toast.google_csv" : "toast.outlook_csv", rows.length - 1),
     '<span class="text-green-400">✔</span>',
   );
 }
 
-// CSVダウンロード共通関数
+// Common CSV download function
 function downloadCSVFile(csvText, filenameBase) {
   const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
   const blob = new Blob([bom, csvText], { type: "text/csv;charset=utf-8;" });
@@ -5146,19 +5135,19 @@ function downloadCSVFile(csvText, filenameBase) {
   URL.revokeObjectURL(url);
 }
 
-// 9. PWAインストールプロンプトの制御
+// 9. PWA Install Prompt Control
 let deferredPrompt;
 window.addEventListener("beforeinstallprompt", (e) => {
-  // ブラウザ標準の目立たないインストール通知をキャンセル
+  // Cancel browser's default unobtrusive install notification
   e.preventDefault();
-  // イベントを保持しておく
+  // Retain event
   deferredPrompt = e;
 
-  // カスタムのインストールボタンを表示する
+  // Show custom install button
   const installBtn = document.getElementById("install-button");
   if (installBtn) {
     installBtn.classList.remove("hidden");
-    // 多重登録を防ぐため、addEventListenerではなく onclick を使用
+    // Use onclick instead of addEventListener to prevent multiple registrations
     installBtn.onclick = async () => {
       installBtn.classList.add("hidden");
       if (!deferredPrompt) return;
@@ -5176,10 +5165,10 @@ window.addEventListener("appinstalled", () => {
   console.log(window._t("log.installed"));
 });
 
-// --- コマンドパレット制御 ---
+// --- Command Palette Control ---
 let isCommandPaletteOpen = false;
 let selectedCommandIndex = 0;
-let prePaletteActiveElement = null; // 🎯 Gold-Rank用: パレットを開く直前のフォーカス要素
+let prePaletteActiveElement = null; // 🎯 Gold-Rank: Focused element right before opening the palette
 
 function getBaseCommands() {
   return [
@@ -5291,7 +5280,7 @@ function toggleCommandPalette() {
   const input = document.getElementById("cmd-input");
 
   if (!isCommandPaletteOpen) {
-    // 🎯 開く瞬間に、どこにフォーカスしていたかを記憶
+    // 🎯 Remember the focused element at the exact moment of opening
     prePaletteActiveElement = document.activeElement;
   }
 
@@ -5325,19 +5314,19 @@ function getDynamicCommands() {
       const res = db.exec("SELECT id, name FROM templates ORDER BY id DESC");
       if (res.length > 0) {
         res[0].values.forEach((row) => {
-          // 挿入コマンド
+          // Insert command
           dynamicCommands.push({
             id: `tpl_insert_${row[0]}`,
             icon: '<svg class="w-5 h-5 text-amber-500"><use href="#icon-sparkles"></use></svg>',
             title: window._t("cmd.insert_tpl", escapeHtml(row[1])),
             action: () => insertTemplate(row[0]),
           });
-          // 削除コマンドを追加
+          // Add delete command
           dynamicCommands.push({
             id: `tpl_delete_${row[0]}`,
             icon: '<svg class="w-5 h-5 text-red-400"><use href="#icon-trash"></use></svg>',
             title: `<span class="text-slate-400">${window._t("cmd.delete_tpl", escapeHtml(row[1]))}</span>`,
-            keepOpen: true, // パレットを閉じない設定
+            keepOpen: true, // Setting to not close palette
             action: async () => {
               if (
                 await window.requestCustomPrompt(
@@ -5349,9 +5338,9 @@ function getDynamicCommands() {
               ) {
                 db.run("DELETE FROM templates WHERE id = ?", [row[0]]);
                 setDirty(true);
-                // インデックスのオーバーフローを防止
+                // Prevent index overflow
                 selectedCommandIndex = Math.max(0, selectedCommandIndex - 1);
-                // パレットを閉じずにリストだけを再描画して更新を反映
+                // Redraw only the list to reflect updates without closing the palette
                 renderCommandList(document.getElementById("cmd-input").value);
               }
             },
@@ -5387,7 +5376,7 @@ function getFilteredCommands(query) {
   if (terms.length > 0 && db) {
     let stmt;
     try {
-      // WHERE条件を外し、親を持つレコードを全取得
+      // Remove WHERE condition and fetch all records with parents
       stmt = db.prepare(
         `SELECT c.id, c.memo, p.memo, p.id, c.contact_info, c.role, c.tags FROM records c JOIN records p ON c.parent_id = p.id WHERE c.parent_id IS NOT NULL`,
       );
@@ -5395,11 +5384,11 @@ function getFilteredCommands(query) {
         const [id, name, org, , contact, role, tags] = stmt.get();
         const targetText = normalize((name || "") + " " + (contact || "") + " " + (org || "") + " " + (role || "") + " " + (tags || ""));
 
-        // JS側で完全な正規化テキストに対してマッチング
+        // Match against fully normalized text on the JS side
         if (terms.every((term) => targetText.includes(term))) {
           const safeName = name || window._t("label.unnamed");
 
-          // 連絡先の種類に応じてバッジの見た目だけを変える（リストは1行に集約）
+          // Only change the appearance of the badge based on contact type (list consolidated into 1 line)
           let badgeText = window._t("aria.detail") || "Detail";
           let badgeClass = "bg-primary/10 text-primary border-primary/20";
           let iconHtml = '<svg class="w-5 h-5 text-primary"><use href="#icon-user"></use></svg>';
@@ -5414,7 +5403,7 @@ function getFilteredCommands(query) {
             iconHtml = '<svg class="w-5 h-5 text-green-500"><use href="#icon-phone"></use></svg>';
           }
 
-          // 連絡先アクション（1人につき1行のみ追加）
+          // Contact actions (Add only 1 row per person)
           contacts.push({
             id: `detail_${id}`,
             icon: iconHtml,
@@ -5423,11 +5412,11 @@ function getFilteredCommands(query) {
             badgeClass: badgeClass,
             keepOpen: false,
             action: () => {
-              showContactDetail(id); // 常に詳細を開く
+              showContactDetail(id); // Always open details
             },
           });
 
-          if (contacts.length > 30) break; // 多すぎる場合は30件で打ち切り
+          if (contacts.length > 30) break; // Cap at 30 items if there are too many
         }
       }
     } catch (e) {
@@ -5460,7 +5449,7 @@ function renderCommandList(query = "") {
   let currentCategory = null;
 
   filtered.forEach((cmd, i) => {
-    // オブジェクトのプロパティ、またはIDからカテゴリを動的かつ確実に判定する（安全装置）
+    // Dynamically and reliably determine category from object properties or ID (Safety mechanism)
     let cat = cmd.category;
     if (!cat) {
       if (cmd.id.startsWith("detail_") || cmd.id.startsWith("mail_") || cmd.id.startsWith("tel_")) cat = "contacts";
@@ -5468,14 +5457,14 @@ function renderCommandList(query = "") {
       else cat = "commands";
     }
 
-    // カテゴリが変わった場合に見出しを挿入
+    // Insert heading if category changes
     if (cat !== currentCategory) {
       currentCategory = cat;
       let catTitle = "";
       if (currentCategory === "contacts") catTitle = window._t("cmd.section_contacts") || "Contacts";
       else if (currentCategory === "templates") catTitle = window._t("cmd.section_templates") || "Templates";
       else if (currentCategory === "commands") catTitle = window._t("cmd.section_commands") || "Commands";
-      if (!catTitle || catTitle.startsWith("cmd.section_")) catTitle = currentCategory.toUpperCase(); // フォールバック
+      if (!catTitle || catTitle.startsWith("cmd.section_")) catTitle = currentCategory.toUpperCase(); // Fallback
 
       const header = document.createElement("div");
       header.className = "block px-3 py-1 mt-3 mb-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest border-b border-slate-200/50 dark:border-dark-border/50";
@@ -5487,19 +5476,24 @@ function renderCommandList(query = "") {
     const isSelected = i === selectedCommandIndex;
     div.className = `command-item px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 dark:bg-primary/10 text-primary" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white"}`;
 
-    // 検索クエリがある場合、マッチした部分をハイライトする（HTMLタグを壊さないよう工夫）
+    // If there is a search query, highlight matched parts (Ensuring HTML tags are not broken)
     let displayTitle = cmd.title;
     if (query.trim().length > 0) {
       const terms = query.normalize("NFKC").trim().split(/[\s　]+/);
       terms.forEach(term => {
-        const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![^<]{0,150}>|[^&]{0,15};)`, "gi");
-        displayTitle = displayTitle.replace(regex, `<mark class="bg-primary/20 text-primary rounded px-0.5">$1</mark>`);
+        try {
+          const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![^<]{0,150}>|[^&]{0,15};)`, "gi");
+          displayTitle = displayTitle.replace(regex, `<mark class="bg-primary/20 text-primary rounded px-0.5">$1</mark>`);
+        } catch (e) {
+          // Skip highlighting and prevent crashes if regex compilation errors occur
+          console.warn("Highlight regex error ignored:", e);
+        }
       });
     }
 
     let innerHtml = `<div class="flex items-center gap-3 min-w-0 flex-1"><span class="text-xl shrink-0">${cmd.icon}</span><span class="font-medium tracking-wide truncate flex-1">${displayTitle}</span></div>`;
 
-    // 右側のバッジやショートカットのコンテナ
+    // Container for badges and shortcuts on the right
     if (cmd.shortcut || cmd.badge) {
       innerHtml += `<div class="flex items-center gap-2 shrink-0 pl-2">`;
       if (cmd.badge) {
@@ -5519,15 +5513,15 @@ function renderCommandList(query = "") {
       cmd.action();
     };
 
-    // マウスが乗った瞬間に選択インデックスを同期し、再描画（チラつき防止のためクラスの付け替えのみ行う）
+    // Sync selection index the moment mouse hovers, and redraw (Only toggle classes to prevent flicker)
     div.onmouseenter = () => {
       if (selectedCommandIndex !== i) {
         selectedCommandIndex = i;
-        // 既存の選択状態を解除
+        // Deselect existing selection
         list.querySelectorAll('.command-item').forEach(child => {
           child.className = child.className.replace("bg-primary-50 dark:bg-primary/10 text-primary", "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white");
         });
-        // 現在のホバー要素を選択状態に
+        // Set current hover element as selected
         div.className = div.className.replace("text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white", "bg-primary-50 dark:bg-primary/10 text-primary");
       }
     };
@@ -5542,7 +5536,7 @@ function renderCommandList(query = "") {
 
 document.addEventListener("keydown", (e) => {
   const key = e.key?.toLowerCase();
-  if (!key) return; // キー情報が取得できない特殊なイベントは無視
+  if (!key) return; // Ignore special events where key info cannot be obtained
 
   if ((e.metaKey || e.ctrlKey) && key === "k") {
     e.preventDefault();
@@ -5558,7 +5552,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // 新規ブロック作成 (Option+N / Alt+N)
+  // Create new block (Option+N / Alt+N)
   if (
     e.altKey &&
     !e.metaKey &&
@@ -5570,7 +5564,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // 上書き保存 (Cmd+S / Ctrl+S) & 複製保存 (Cmd+Shift+S / Ctrl+Shift+S)
+  // Overwrite Save (Cmd+S / Ctrl+S) & Save as Copy (Cmd+Shift+S / Ctrl+Shift+S)
   if (
     (e.metaKey || e.ctrlKey) &&
     (key === "s" || key === "ｓ" || e.code === "KeyS")
@@ -5584,7 +5578,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // ファイルを開く (Cmd+O / Ctrl+O)
+  // Open file (Cmd+O / Ctrl+O)
   if (
     (e.metaKey || e.ctrlKey) &&
     (key === "o" || key === "ｏ" || e.code === "KeyO")
@@ -5605,10 +5599,10 @@ document.addEventListener("keydown", (e) => {
       return;
     }
 
-    // 設定メニューを閉じる
+    // Close settings menu
     window.closeSettingsMenu();
 
-    // モーダルやパレットが開いていれば閉じる
+    // Close modals or palettes if they are open
     if (isCommandPaletteOpen) {
       const input = document.getElementById("cmd-input");
       if (input && input.value !== "") {
@@ -5652,7 +5646,7 @@ document.addEventListener("keydown", (e) => {
 
     const filtered = getFilteredCommands(input.value);
 
-    // ✅ 結果が0件の時の NaN クラッシュを防止
+    // ✅ Prevent NaN crash when result is 0
     if (
       filtered.length === 0 &&
       (e.key === "ArrowDown" ||
@@ -5664,9 +5658,9 @@ document.addEventListener("keydown", (e) => {
       return;
     }
 
-    // Tabキーの挙動をオーバーライドして上下移動に割り当てる
+    // Override Tab key behavior and assign to up/down movement
     if (e.key === "Tab") {
-      e.preventDefault(); // フォーカス移動を阻止
+      e.preventDefault(); // Prevent focus movement
       if (e.shiftKey) {
         selectedCommandIndex =
           (selectedCommandIndex - 1 + filtered.length) % filtered.length;
@@ -5701,13 +5695,13 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// --- TOC（目次）の絞り込み機能 ---
+// --- TOC (Table of Contents) Filter Feature ---
 function applyTocFilter(query) {
   const q = query.toLowerCase();
   const tocItems = document.querySelectorAll("#toc-list a.toc-item");
   const tagElements = document.querySelectorAll(
     "#toc-list div.group, #toc-list div.mt-8",
-  ); // タグ一覧と区切り線
+  ); // Tag list and separator
 
   tocItems.forEach((item) => {
     const text = item.textContent.toLowerCase();
@@ -5715,7 +5709,7 @@ function applyTocFilter(query) {
     item.style.display = isVisible ? "block" : "none";
   });
 
-  // 検索入力中はタグ一覧のエリアを非表示にしてノイズを消す
+  // Hide tag list area during search input to reduce noise
   tagElements.forEach((el) => {
     el.style.display = q === "" ? "" : "none";
   });
@@ -5730,7 +5724,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// --- マルチタブ起動によるデータ競合の防止 ---
+// --- Prevent Data Conflict from Multi-tab Launch ---
 let hasAlerted = false;
 
 if (typeof BroadcastChannel !== "undefined") {
@@ -5738,9 +5732,9 @@ if (typeof BroadcastChannel !== "undefined") {
 
   bc.onmessage = async (e) => {
     if (e.data === "ping") {
-      bc.postMessage("pong"); // すでに開いているタブが応答する
+      bc.postMessage("pong"); // Already opened tab responds
     } else if (e.data === "pong") {
-      // 自分が後から開いたタブだった場合
+      // If I am the tab that was opened later
       if (!hasAlerted) {
         hasAlerted = true;
         await window.requestCustomPrompt(
@@ -5766,7 +5760,7 @@ document.getElementById("cmd-input")?.addEventListener("input", (e) => {
   }, 100);
 });
 
-// --- パスワード表示トグル ---
+// --- Password Display Toggle ---
 function togglePasswordVisibility() {
   const pwInput = document.getElementById("file-password");
   const iconOpen = document.getElementById("icon-eye-open");
@@ -5796,9 +5790,9 @@ function togglePasswordPromptVisibility() {
   }
 }
 
-// --- 役職サジェスト (オートコンプリート) 機能 ---
+// --- Role Suggestion (Autocomplete) Feature ---
 const roleDictionaries = {
-  custom: [], // ユーザー定義の辞書
+  custom: [], // User-defined dictionary
   none: [],
   get business() {
     return [
@@ -5851,13 +5845,13 @@ function renderRoleSuggestions(dictKey) {
 function loadCustomDict() {
   const savedDict = getDbSetting("customRoleDict");
 
-  // デフォルト辞書の初期設定用キー
+  // Initial setting key for default dictionary
   const defaultKeys = [
     "role.biz.president", "role.biz.director", "role.biz.manager", "role.biz.section_chief",
     "role.biz.team_leader", "role.biz.sales", "role.biz.engineer", "role.biz.designer"
   ];
 
-  // 既存の平文データを翻訳キーに変換するためのマイグレーションマップ
+  // Migration map to convert existing plaintext data into translation keys
   const roleTranslationMap = {
     "代表取締役": "role.biz.president", "CEO / President": "role.biz.president",
     "取締役": "role.biz.director", "Director": "role.biz.director",
@@ -5881,7 +5875,7 @@ function loadCustomDict() {
     try {
       const parsed = JSON.parse(savedDict);
       if (Array.isArray(parsed)) {
-        // 古い形式(文字列の配列)から新しい形式(オブジェクトの配列)へマイグレーション
+        // Migrate from old format (array of strings) to new format (array of objects)
         if (parsed.length > 0 && typeof parsed[0] === "string") {
           customRoleDict = parsed.map((name) => {
             const mappedName = roleTranslationMap[name] || name;
@@ -5894,18 +5888,18 @@ function loadCustomDict() {
           });
         }
       } else {
-        throw new Error("Invalid format"); // catchブロックに飛ばしてデフォルト値をセットさせる
+        throw new Error("Invalid format"); // Throw to catch block and set default values
       }
     } catch (e) {
-      // パースに失敗したらデフォルトで上書き
+      // Overwrite with default if parsing fails
       customRoleDict = defaultKeys.map((name) => ({ name, hidden: false }));
     }
   } else {
-    // 初回起動時はビジネスリストをデフォルトとしてセット
+    // Set business list as default on first launch
     customRoleDict = defaultKeys.map((name) => ({ name, hidden: false }));
   }
 
-  // customRoleDict が万が一 undefined になってもエラーを出さない
+  // Prevent error even if customRoleDict accidentally becomes undefined
   roleDictionaries.custom = (customRoleDict || [])
     .filter((i) => i && !i.hidden)
     .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
@@ -5916,14 +5910,14 @@ function saveCustomDict() {
   roleDictionaries.custom = customRoleDict
     .filter((i) => !i.hidden)
     .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
-  // 現在の選択がカスタムなら、datalistを即時更新
+  // If current selection is custom, instantly update datalist
   if (document.getElementById("dict-select").value === "custom") {
     renderRoleSuggestions("custom");
   }
   return true;
 }
 
-// --- カスタム役職辞書エディタ ---
+// --- Custom Role Dictionary Editor ---
 let draggedItemIndex = null;
 
 function showRoleDictEditor() {
@@ -5941,7 +5935,7 @@ function showRoleDictEditor() {
     if (newRoleName) {
       const existing = customRoleDict.find((item) => item.name === newRoleName);
       if (existing) {
-        existing.hidden = false; // 存在していれば再表示
+        existing.hidden = false; // Reshow if exists
       } else {
         customRoleDict.push({ name: newRoleName, hidden: false });
       }
@@ -5958,12 +5952,12 @@ function closeRoleDictEditor() {
   modal.classList.remove("flex");
   unlockScroll();
   toggleMainUI(false);
-  // 変更を保存せずに閉じた場合は、元の状態に戻す
+  // Revert to original state if closed without saving changes
   loadCustomDict();
 }
 
 function saveCustomDictAndClose() {
-  if (!saveCustomDict()) return; // 失敗時は閉じない
+  if (!saveCustomDict()) return; // Do not close on failure
 
   const modal = document.getElementById("role-dict-editor-modal");
   modal.classList.add("hidden");
@@ -5991,30 +5985,30 @@ function renderCustomDictEditor() {
 
     li.innerHTML = `
       <div class="flex items-center gap-3 min-w-0 flex-1">
-        <!-- PC用のドラッグハンドル -->
+        <!-- Drag handle for PC -->
         <svg class="hidden sm:block w-5 h-5 text-slate-400 shrink-0"><use href="#icon-drag"></use></svg>
         <span class="font-medium ${textClass} truncate">${escapeHtml(displayName)}</span>
       </div>
       <div class="flex items-center gap-1 shrink-0">
-        <!-- スマホ用の上下移動ボタン -->
+        <!-- Mobile Up/Down navigation buttons -->
         <div class="flex flex-col sm:hidden mr-2">
           <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
           <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === customRoleDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customRoleDict.length - 1 ? "disabled" : ""}>▼</button>
         </div>
-        <!-- 表示/非表示トグル -->
+        <!-- Show/Hide Toggle -->
         <button onclick="toggleCustomRoleHidden(${index})" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors shrink-0" title="${title}">
           <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
         </button>
-        <!-- 削除ボタン -->
+        <!-- Delete Button -->
         <button onclick="deleteCustomDictItem(${index})" class="text-slate-300 hover:text-red-500 transition-colors shrink-0 ml-1" title="${window._t("btn.delete_completely")}">
           <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
         </button>
       </div>
     `;
-    // Drag and Drop イベント
+    // Drag and Drop events
     li.addEventListener("dragstart", (e) => {
       draggedItemIndex = index;
-      // Firefoxでドラッグ＆ドロップを有効化するための必須コード
+      // Essential code to enable drag and drop in Firefox
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", index);
@@ -6043,7 +6037,7 @@ function renderCustomDictEditor() {
   });
 }
 
-// スマホタップ用のカスタム役職並び替え関数
+// Custom role sorting function for mobile taps
 function moveCustomDictItem(index, direction) {
   if (index + direction < 0 || index + direction >= customRoleDict.length)
     return;
@@ -6095,53 +6089,56 @@ if (!window.isSecureContext) {
     hideStatus();
   });
 } else {
-  // DOMとすべてのCDNスクリプトの読み込みが完了してから言語を初期化し、その後SQLiteを起動する
+  // Initialize language after DOM and all CDN scripts finish loading, then start SQLite
   document.addEventListener("DOMContentLoaded", async () => {
-    // 保存された言語、またはブラウザの言語を取得
+    // Get saved language or browser language
     const savedLang = localStorage.getItem('app_lang') || navigator.language.split('-')[0];
 
-    // UIの言語選択プルダウンを同期
+    // Sync UI language selection dropdown
     const langSelect = document.getElementById("lang-select");
     if (langSelect) {
       langSelect.value = savedLang === 'ja' ? 'ja' : 'en';
     }
 
-    // 言語ファイルを非同期でロード（完了するまで待つ）
+    // Load language file asynchronously (Wait until completion)
     await window.I18n.init(savedLang);
 
     initSQLite();
   });
 }
 
-// ユーザーが設定画面などで言語を切り替えたときの処理
+// Processing when user switches language in settings etc.
 async function changeLanguage(langCode) {
   localStorage.setItem('app_lang', langCode);
   document.documentElement.lang = langCode;
-  await window.I18n.init(langCode); // 新しい言語ファイルを読み込んでHTMLを自動翻訳
+  await window.I18n.init(langCode); // Load new language file and automatically translate HTML
 
-  // カスタム辞書内の翻訳キーを最新言語で解決し直してサジェスト配列を更新
+  // Re-resolve translation keys in custom dictionary with latest language and update suggest array
   if (typeof customRoleDict !== 'undefined') {
     roleDictionaries.custom = customRoleDict
       .filter((i) => !i.hidden)
       .map((i) => i.name.startsWith("role.") ? window._t(i.name) : i.name);
 
-    // 辞書編集モーダルが開いていれば再描画
+    // Redraw if dictionary edit modal is open
     const modal = document.getElementById("role-dict-editor-modal");
     if (modal && !modal.classList.contains("hidden")) {
       renderCustomDictEditor();
     }
   }
 
-  renderData(); // メインのリストなどを再描画
+  renderData(); // Redraw main list etc.
 
-  // 現在選択中の辞書を再評価し、サジェストUI（<datalist>）を更新
+  // Re-evaluate currently selected dictionary and update suggest UI (<datalist>)
   const dictSelect = document.getElementById("dict-select");
   if (dictSelect) {
     renderRoleSuggestions(dictSelect.value);
   }
+
+  // 🎯 Add: Re-sync page title (app.title) and filename display with the latest language
+  setDirty(isDirty);
 }
 
-// --- ファイル固有の設定を読み込んでUIに反映する ---
+// --- Read file-specific settings and reflect in UI ---
 function loadSettingsFromDb() {
   loadCustomDict();
   const savedDict = getDbSetting("roleDict", "custom");
@@ -6150,7 +6147,7 @@ function loadSettingsFromDb() {
   renderRoleSuggestions(savedDict);
 }
 
-// ページ離脱時の警告（データ未保存防止）
+// Warning on page leave (Prevent unsaved data)
 window.addEventListener("beforeunload", (e) => {
   if (isDirty) {
     e.preventDefault();
@@ -6159,11 +6156,21 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-// --- ドラッグ＆ドロップによるファイル読み込み ---
+// --- File Loading via Drag & Drop ---
 const dropOverlay = document.getElementById("drop-overlay");
 let dragCounter = 0;
 
-// 安全にファイルドラッグかどうかを判定する関数（Safariのエラー回避用）
+// Global function to cancel/reset drag and drop overlay
+window.hideDropOverlay = function() {
+  const overlay = document.getElementById("drop-overlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    overlay.classList.remove("flex");
+  }
+  dragCounter = 0; // Correctly reset script-scoped variable
+};
+
+// Function to safely determine if file drag (to avoid Safari errors)
 function hasFiles(e) {
   if (!e.dataTransfer || !e.dataTransfer.types) return false;
   for (let i = 0; i < e.dataTransfer.types.length; i++) {
@@ -6172,7 +6179,7 @@ function hasFiles(e) {
   return false;
 }
 
-// 1. デフォルト挙動をキャンセル (documentに対して行うことでSafariでの誤発火を防ぐ)
+// 1. Cancel default behavior (Prevent misfiring on Safari by targeting document)
 document.addEventListener("dragover", (e) => {
   if (hasFiles(e)) {
     e.preventDefault();
@@ -6185,7 +6192,7 @@ document.addEventListener("drop", (e) => {
   }
 });
 
-// 2. ファイルがウィンドウに入ってきたときの処理 (カウンタ方式)
+// 2. Processing when file enters window (Counter method)
 document.addEventListener("dragenter", (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
@@ -6196,13 +6203,13 @@ document.addEventListener("dragenter", (e) => {
   dragCounter++;
 });
 
-// 3. ファイルがウィンドウから出ていったときの処理 (カウンタ方式)
+// 3. Processing when file leaves window (Counter method)
 document.addEventListener("dragleave", (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
   dragCounter--;
   if (dragCounter <= 0) {
-    dragCounter = 0; // 念のためリセット
+    dragCounter = 0; // Reset just in case
     dropOverlay.classList.add("hidden");
     dropOverlay.classList.remove("flex");
   }
@@ -6221,11 +6228,11 @@ dropOverlay.addEventListener("dragleave", (e) => {
   if (hasFiles(e)) e.preventDefault();
 });
 
-// 4. ドロップされたときの処理
+// 4. Processing when dropped
 document.addEventListener("drop", async (e) => {
   if (!hasFiles(e)) return;
 
-  // カウンタとオーバーレイをリセット
+  // Reset counter and overlay
   dragCounter = 0;
   dropOverlay.classList.add("hidden");
   dropOverlay.classList.remove("flex");
@@ -6257,15 +6264,15 @@ document.addEventListener("drop", async (e) => {
 
   if (!file) return;
 
-  // すべてのUI状態をリセットし、安全な状態に初期化する
+  // Reset all UI states and initialize to a safe state
   if (isCommandPaletteOpen) toggleCommandPalette();
   closeCSVModal();
   closeExportModal();
   closeRoleDictEditor();
   closeContactDetail(false);
 
-  // 拡張子に応じて処理を分岐
-  const extName = file.name.toLowerCase(); // 💡 小文字に正規化して判定
+  // Branch processing based on extension
+  const extName = file.name.toLowerCase(); // 💡 Normalize to lowercase for checking
   if (extName.endsWith(".people")) {
     if (isDirty) {
       const isConfirmed = await window.requestCustomPrompt(
@@ -6289,17 +6296,17 @@ document.addEventListener("drop", async (e) => {
       await processFileHandle(dummyHandle);
     }
   } else if (extName.endsWith(".vcf")) {
-    // vCardファイルのドラッグ＆ドロップインポート
+    // Drag and drop import of vCard files
     await importVCardFile(file);
   } else if (extName.endsWith(".csv")) {
-    // 隠された <input type="file"> を利用して、既存のインポートフローに流す
+    // Utilize hidden <input type="file"> to feed into existing import flow
     const csvInput = document.getElementById("csv-input");
     if (csvInput) {
-      // FileListを作成してinputにセット
+      // Create FileList and set to input
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       csvInput.files = dataTransfer.files;
-      // onchangeイベントを手動で発火させる
+      // Manually trigger onchange event
       csvInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
   } else {
@@ -6311,7 +6318,7 @@ document.addEventListener("drop", async (e) => {
   }
 });
 
-// OSを判定してショートカットキーのUI表示を最適化
+// Detect OS and optimize UI display of shortcut keys
 const shortcutEl = document.getElementById("cmd-shortcut-key");
 if (shortcutEl) {
   shortcutEl.textContent = isMac ? "⌘K" : "Ctrl+K";
@@ -6325,16 +6332,16 @@ const btnOpenTooltip = document.querySelector(
 );
 if (btnOpenTooltip) btnOpenTooltip.title = `${window._t("btn.open")} (${isMac ? "⌘O" : "Ctrl+O"})`;
 
-// --- 最後の砦：タブ閉じ/バックグラウンド移行時の強制バックアップ ---
+// --- Last Resort: Force backup on tab close / background transition ---
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    // 1. フォーカス中のインライン編集を強制確定（Blur）させてDBに反映
+    // 1. Force commit (Blur) focused inline edits to reflect in DB
     const activeEl = document.activeElement;
     if (activeEl && typeof activeEl.blur === "function" && activeEl.tagName !== "BODY" && activeEl.id !== "cmd-input") {
       activeEl.blur();
     }
 
-    // 2. 詳細モーダルが開いていて編集中の場合、裏側で「Save」を実行してDBに反映
+    // 2. If Detail Modal is open and editing, execute 'Save' in background to reflect in DB
     const detailModal = document.getElementById("contact-detail-modal");
     if (detailModal && !detailModal.classList.contains("hidden")) {
       const currentDataSnapshot = JSON.stringify(getDetailFormData());
@@ -6343,10 +6350,10 @@ document.addEventListener("visibilitychange", () => {
       }
     }
 
-    // 3. 確定された最新のDBをIndexedDBに緊急退避 (Fail-safe)
+    // 3. Emergency backup of committed latest DB to IndexedDB (Fail-safe)
     if (isDirty && db) {
       try {
-        // 【追加】パスワードが設定されている場合は、平文でのバックアップを絶対に禁止する
+        // [Add] Strictly prohibit plaintext backup if a password is set
         const currentPassword = document.getElementById("file-password").value;
         if (currentPassword) {
           console.warn(
@@ -6355,7 +6362,7 @@ document.addEventListener("visibilitychange", () => {
           return;
         }
 
-        // 簡易的なサイズチェック（SQLiteのページ数などで推定）
+        // Simple size check (estimated by SQLite page count etc.)
         const pageSizeRes = db.exec("PRAGMA page_size");
         const pageCountRes = db.exec("PRAGMA page_count");
         if (pageSizeRes.length && pageCountRes.length) {
@@ -6371,9 +6378,9 @@ document.addEventListener("visibilitychange", () => {
 
         const data = db.export();
 
-        // 【セキュリティ修正 3】: タブ終了時の Race Condition キル対策
-        // 非同期の暗号化（encryptData）を待つとブラウザにプロセスを殺されてデータが消失するため、
-        // 終了時の緊急退避に限っては、サンドボックスで保護されたIndexedDBへ即座に非同期書き込みリクエストを発行する（ベストエフォート）。
+        // [Security Fix 3] Race Condition kill countermeasure on tab close
+        // Since waiting for asynchronous encryption (encryptData) causes the browser to kill the process and lose data,
+        // Only for emergency fallback on exit, issue an immediate asynchronous write request to the sandboxed IndexedDB (best effort).
         const tx = indexedDB.open(DB_NAME, 1);
         tx.onsuccess = (e) => {
           const idb = e.target.result;
@@ -6392,7 +6399,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// --- 新機能: SVGアバター生成 ---
+// --- Feature: SVG Avatar Generation ---
 function generateAvatarSVG(name, id = 0) {
   const colors = [
     "#ef4444",
@@ -6418,7 +6425,7 @@ function generateAvatarSVG(name, id = 0) {
     hash = safeName.charCodeAt(i) + ((hash << 5) - hash);
   }
   const bgColor = colors[Math.abs(hash) % colors.length];
-  // Emojiなどのサロゲートペア対応のためArray.fromを使用
+  // Use Array.from to support surrogate pairs like Emoji
   const chars = Array.from(safeName.trim());
   const initial = chars.length > 0 ? chars[0].toUpperCase() : "?";
 
@@ -6428,74 +6435,79 @@ function generateAvatarSVG(name, id = 0) {
   </svg>`;
 }
 
-// --- 新機能: Web Share APIを用いた連絡先の共有 ---
+// --- Feature: Contact Sharing using Web Share API ---
 async function shareContact(id) {
   if (!db) return;
-  const stmt = db.prepare(
-    "SELECT parent_id, memo, contact_info, role, created_at, tags FROM records WHERE id = ?",
-  );
-  stmt.bind([id]);
-  if (!stmt.step()) return;
-  const row = stmt.get();
-  stmt.free();
+  let stmt;
+  let parentStmt;
+  try {
+    stmt = db.prepare(
+      "SELECT parent_id, memo, contact_info, role, created_at, tags FROM records WHERE id = ?",
+    );
+    stmt.bind([id]);
+    if (!stmt.step()) return;
+    const row = stmt.get();
 
-  const [parent_id, memo, contact_info, role, , tags] = row;
-  let orgName = "";
-  let orgTags = "";
-  if (parent_id) {
-    const parentStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
-    parentStmt.bind([parent_id]);
-    if (parentStmt.step()) {
-      const pRow = parentStmt.get();
-      orgName = pRow[0] || "";
-      orgTags = pRow[1] || "";
-    }
-    parentStmt.free();
-  }
-
-  const item = {
-    id: id,
-    name: memo || window._t("label.unnamed"),
-    org: orgName,
-    role: role,
-    contact_info: contact_info,
-    fields: getContactFields(id),
-    item_tags: tags,
-    org_tags: orgTags,
-  };
-
-  const vcardData = generateVCardData([item]);
-  const fileName = `${(memo || "contact").replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
-  // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
-  const file = new File([vcardData], fileName, { type: "text/plain" });
-
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: memo || window._t("label.unnamed"),
-      });
-      showToast(window._t("toast.contact_shared"), "✨");
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        console.error("Share failed:", err);
-        triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+    const [parent_id, memo, contact_info, role, , tags] = row;
+    let orgName = "";
+    let orgTags = "";
+    if (parent_id) {
+      parentStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
+      parentStmt.bind([parent_id]);
+      if (parentStmt.step()) {
+        const pRow = parentStmt.get();
+        orgName = pRow[0] || "";
+        orgTags = pRow[1] || "";
       }
     }
-  } else {
-    triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+
+    const item = {
+      id: id,
+      name: memo || window._t("label.unnamed"),
+      org: orgName,
+      role: role,
+      contact_info: contact_info,
+      fields: getContactFields(id),
+      item_tags: tags,
+      org_tags: orgTags,
+    };
+
+    const vcardData = generateVCardData([item]);
+    const fileName = `${(memo || "contact").replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
+    // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
+    const file = new File([vcardData], fileName, { type: "text/plain" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: memo || window._t("label.unnamed"),
+        });
+        showToast(window._t("toast.contact_shared"), "✨");
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Share failed:", err);
+          triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+        }
+      }
+    } else {
+      triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+    }
+  } finally {
+    if (stmt) stmt.free();
+    if (parentStmt) parentStmt.free();
   }
 }
 
-// 詳細モーダル内での Enter キー押下を検知し、瞬時に保存して閉じる
+// Detect Enter key press in detail modal, save instantly and close
 document.getElementById("contact-detail-modal")?.addEventListener("keydown", (e) => {
   if (!e.isComposing) {
-    // Cmd (Mac) または Ctrl (Windows) + Enter の場合は、フォーカス位置に関わらず保存
+    // Save regardless of focus position on Cmd (Mac) or Ctrl (Windows) + Enter
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       saveContactDetail();
     }
-    // 単体の Enter は、INPUT要素にいる場合のみ保存 (TEXTAREA内の改行を妨害しないため)
+    // Solo Enter saves only when focused on INPUT element (so as not to block newlines in TEXTAREA)
     else if (e.key === "Enter" && e.target.tagName === "INPUT") {
       e.preventDefault();
       saveContactDetail();
@@ -6505,58 +6517,63 @@ document.getElementById("contact-detail-modal")?.addEventListener("keydown", (e)
 
 async function shareBlock(blockId) {
   if (!db) return;
-  const blockStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
-  blockStmt.bind([blockId]);
-  if (!blockStmt.step()) return;
-  const pRow = blockStmt.get();
-  const blockMemo = pRow[0] || window._t("label.unnamed");
-  const blockTags = pRow[1] || "";
-  blockStmt.free();
+  let blockStmt;
+  let itemsStmt;
+  try {
+    blockStmt = db.prepare("SELECT memo, tags FROM records WHERE id = ?");
+    blockStmt.bind([blockId]);
+    if (!blockStmt.step()) return;
+    const pRow = blockStmt.get();
+    const blockMemo = pRow[0] || window._t("label.unnamed");
+    const blockTags = pRow[1] || "";
 
-  const itemsStmt = db.prepare(
-    "SELECT id, memo, contact_info, role, created_at, tags FROM records WHERE parent_id = ? ORDER BY sort_order ASC, id ASC",
-  );
-  itemsStmt.bind([blockId]);
-  const dataItems = [];
-  while (itemsStmt.step()) {
-    const row = itemsStmt.get();
-    dataItems.push({
-      id: row[0],
-      name: row[1] || window._t("label.unnamed"),
-      org: blockMemo,
-      role: row[3],
-      contact_info: row[2],
-      fields: getContactFields(row[0]),
-      item_tags: row[5],
-      org_tags: blockTags,
-    });
-  }
-  itemsStmt.free();
-
-  if (dataItems.length === 0) {
-    showToast(window._t("toast.no_share_data"), "⚠️", "warning");
-    return;
-  }
-
-  const vcardData = generateVCardData(dataItems);
-  const fileName = `${blockMemo.replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
-  // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
-  const file = new File([vcardData], fileName, { type: "text/plain" });
-
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: blockMemo,
+    itemsStmt = db.prepare(
+      "SELECT id, memo, contact_info, role, created_at, tags FROM records WHERE parent_id = ? ORDER BY sort_order ASC, id ASC",
+    );
+    itemsStmt.bind([blockId]);
+    const dataItems = [];
+    while (itemsStmt.step()) {
+      const row = itemsStmt.get();
+      dataItems.push({
+        id: row[0],
+        name: row[1] || window._t("label.unnamed"),
+        org: blockMemo,
+        role: row[3],
+        contact_info: row[2],
+        fields: getContactFields(row[0]),
+        item_tags: row[5],
+        org_tags: blockTags,
       });
-      showToast(window._t("toast.group_shared"), "✨");
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        console.error("Share failed:", err);
-        triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
-      }
     }
-  } else {
-    triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+
+    if (dataItems.length === 0) {
+      showToast(window._t("toast.no_share_data"), "⚠️", "warning");
+      return;
+    }
+
+    const vcardData = generateVCardData(dataItems);
+    const fileName = `${blockMemo.replace(/[\\/:*?"<>|]/g, "_")}.vcf`;
+    // Use "text/plain" MIME type to prevent DOMException crash on some Android Web Share APIs
+    const file = new File([vcardData], fileName, { type: "text/plain" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: blockMemo,
+        });
+        showToast(window._t("toast.group_shared"), "✨");
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Share failed:", err);
+          triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+        }
+      }
+    } else {
+      triggerVCardDownload(vcardData, fileName.replace(".vcf", ""));
+    }
+  } finally {
+    if (blockStmt) blockStmt.free();
+    if (itemsStmt) itemsStmt.free();
   }
 }
