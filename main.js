@@ -10,6 +10,7 @@ let currentDisplayedTotal = 0; // For count up
 let collapsedBlocks = new Set(); // Remember IDs of collapsed blocks
 let totalAnimationId = null; // ID to prevent multiple animation triggers
 let draftTimer = null; // Timer for draft autosave
+let dirtyVersion = 0; // Incremented on every edit to detect changes made while a draft save is in flight
 let statusTimeoutId = null; // Timer ID for status bar notification
 let isSaving = false; // Flag to prevent multiple execution of save processing
 let lastSavedPasswordHash = ""; // Retain password hash (Avoid keeping plaintext)
@@ -223,6 +224,7 @@ async function clearDraft() {
 // Set unsaved state (isDirty) and update UI badge
 function setDirty(state) {
   isDirty = state;
+  if (state) dirtyVersion++;
   const badge = document.getElementById("dirty-badge");
   if (badge) {
     if (state) {
@@ -250,7 +252,9 @@ function setDirty(state) {
     if (draftTimer) {
       clearTimeout(draftTimer);
     }
-    draftTimer = setTimeout(async () => {
+    const timerId = setTimeout(async () => {
+      // Version of the data captured in this snapshot
+      const snapshotVersion = dirtyVersion;
       try {
         if (!isDirty || isSaving) return; // [Add] Abort autosave if manual save (isSaving) is in progress
 
@@ -264,6 +268,10 @@ function setDirty(state) {
 
         await saveDraft(data);
 
+        // Edits made during encryption/saving are not in this snapshot; a newer timer
+        // is already scheduled for them, so keep the dirty badge visible.
+        if (dirtyVersion !== snapshotVersion) return;
+
         // [Gold-Rank Polish] Micro-interaction on auto-save completion
         const badge = document.getElementById("dirty-badge");
         if (badge) {
@@ -276,9 +284,11 @@ function setDirty(state) {
               "shadow-[0_0_8px_var(--color-green-400)]",
             );
             setTimeout(() => {
-              // Fade out afterwards
-              badge.classList.add("hidden");
-              badge.classList.remove("flex");
+              // Fade out afterwards (unless new edits arrived in the meantime)
+              if (dirtyVersion === snapshotVersion) {
+                badge.classList.add("hidden");
+                badge.classList.remove("flex");
+              }
               dot.classList.replace("bg-green-400", "bg-orange-500");
               dot.classList.replace(
                 "shadow-[0_0_8px_var(--color-green-400)]",
@@ -292,9 +302,11 @@ function setDirty(state) {
         // Show a warning toast if backup fails due to quota limit
         showToast("Backup failed. Check device storage.", "⚠️", "warning");
       } finally {
-        draftTimer = null; // Release timer after save completion
+        // Release timer after save completion (do not clobber a newer timer scheduled meanwhile)
+        if (draftTimer === timerId) draftTimer = null;
       }
     }, 30000); // Extended from 10 to 30 seconds to reduce blocking during typing
+    draftTimer = timerId;
   } else if (!state) {
     if (draftTimer) {
       clearTimeout(draftTimer);
@@ -1302,6 +1314,8 @@ async function importVCardFile(file) {
 function executeVCardImport(contacts) {
   db.run("BEGIN TRANSACTION;");
   let checkStmt = null;
+  let importedCount = 0;
+  let skipCount = 0;
   try {
     checkStmt = db.prepare(
       "SELECT 1 FROM records WHERE memo = ? AND IFNULL(contact_info, '') = IFNULL(?, '') LIMIT 1",
@@ -1324,13 +1338,8 @@ function executeVCardImport(contacts) {
     for (const [, data] of orgMap) {
       const orgName = data.displayName;
       const members = data.members;
-      db.run("INSERT INTO records (memo, contact_info) VALUES (?, ?)", [
-        orgName,
-        null,
-      ]);
-      const pRes = db.exec("SELECT last_insert_rowid()");
-      const parentId = pRes[0]?.values?.[0]?.[0];
-      if (!parentId) throw new Error("親IDの取得に失敗しました");
+      // Create the parent block lazily so that no empty block remains when all members are duplicates
+      let parentId = null;
 
       for (const contact of members) {
         const name = contact.displayName || "";
@@ -1344,9 +1353,20 @@ function executeVCardImport(contacts) {
         checkStmt.bind([name, contactInfo]);
         if (checkStmt.step()) {
           checkStmt.reset();
+          skipCount++;
           continue; // Skip because it's a duplicate
         }
         checkStmt.reset();
+
+        if (!parentId) {
+          db.run("INSERT INTO records (memo, contact_info) VALUES (?, ?)", [
+            orgName,
+            null,
+          ]);
+          const pRes = db.exec("SELECT last_insert_rowid()");
+          parentId = pRes[0]?.values?.[0]?.[0];
+          if (!parentId) throw new Error("Failed to get parent ID");
+        }
 
         db.run(
           "INSERT INTO records (parent_id, memo, contact_info, role) VALUES (?, ?, ?, ?)",
@@ -1355,6 +1375,7 @@ function executeVCardImport(contacts) {
         const cRes = db.exec("SELECT last_insert_rowid()");
         const childId = cRes[0]?.values?.[0]?.[0];
         if (!childId) throw new Error("子IDの取得に失敗しました");
+        importedCount++;
 
         // Save all fields to contact_fields
         const counters = {};
@@ -1371,13 +1392,17 @@ function executeVCardImport(contacts) {
           counters[counterKey]++;
         }
       }
-      collapsedBlocks.add(parentId);
+      if (parentId) collapsedBlocks.add(parentId);
     }
     db.run("COMMIT;");
-    setDirty(true);
-    currentActiveTag = null;
+    // Nothing was added when every contact was a duplicate, so keep the clean state
+    if (importedCount > 0) {
+      setDirty(true);
+      currentActiveTag = null;
+    }
     showToast(
-      window._t("toast.import", contacts.length),
+      window._t("toast.import", importedCount) +
+        (skipCount > 0 ? window._t("toast.skipped_dup", skipCount) : ""),
       '<span class="text-green-400">✨</span>',
     );
   } catch (err) {
@@ -1455,7 +1480,9 @@ async function initSQLite() {
                   errorScreen.classList.remove("hidden");
                   errorScreen.classList.add("flex");
                 }
-                throw new Error("User canceled decryption");
+                const cancelErr = new Error("User canceled decryption");
+                cancelErr.userCanceled = true;
+                throw cancelErr;
               }
               attempt++;
             }
@@ -1532,6 +1559,13 @@ async function initSQLite() {
     // Processing when file is double-clicked from OS as a PWA
     handleLaunchFiles();
   } catch (err) {
+    // Security stop screen is already shown; do not overwrite it with the generic fatal message
+    if (err && err.userCanceled) {
+      const statusEl = document.getElementById("status");
+      if (statusEl) statusEl.style.display = "none";
+      hideStatus();
+      return;
+    }
     showToast(window._t("error.sqlite_fail"), "<span>⚠️</span>", "error");
     console.error(err);
     const statusEl = document.getElementById("status");
@@ -1709,12 +1743,15 @@ function insertRecord(
 ) {
   let nextSortOrder = 0;
   if (parentId) {
+    let orderStmt;
     try {
-      const orderStmt = db.prepare("SELECT IFNULL(MAX(sort_order), -1) + 1 FROM records WHERE parent_id = ?");
+      orderStmt = db.prepare("SELECT IFNULL(MAX(sort_order), -1) + 1 FROM records WHERE parent_id = ?");
       orderStmt.bind([parentId]);
       if (orderStmt.step()) nextSortOrder = orderStmt.get()[0];
-      orderStmt.free();
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      if (orderStmt) orderStmt.free();
+    }
   }
 
   const createdAt = dateStr ? (dateStr + " 00:00:00") : getLocalTimeFormatted();
@@ -4502,13 +4539,17 @@ async function executeCSVImport() {
     }
 
     db.run("COMMIT;");
-    setDirty(true);
 
-    // Keep imported blocks collapsed initially (for better readability)
-    collapsedBlocks.add(parentId);
+    // Nothing was added when every row was a duplicate, so keep the clean state
+    if (successCount > 0) {
+      setDirty(true);
 
-    // Clear filters to prevent imported data from disappearing
-    currentActiveTag = null;
+      // Keep imported blocks collapsed initially (for better readability)
+      collapsedBlocks.add(parentId);
+
+      // Clear filters to prevent imported data from disappearing
+      currentActiveTag = null;
+    }
 
     const msg =
       window._t("toast.import", successCount) +

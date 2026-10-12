@@ -1,5 +1,5 @@
 // 💡 Rewrite this on update to trigger an update
-const CACHE_NAME = "grindpeople-v20260629-2";
+const CACHE_NAME = "grindpeople-v20261012-1";
 const urlsToCache = [
   "./",
   "./index.html",
@@ -27,7 +27,7 @@ self.addEventListener('install', (event) => {
       // Add local files in bulk as usual
       await cache.addAll(urlsToCache.filter(url => !url.endsWith('.wasm')));
       // Cache WASM individually (Do not stop Service Worker itself even if it fails)
-      cache.add('./assets/sql-wasm.wasm').catch(() => console.warn("WASM cache failed."));
+      await cache.add('./assets/sql-wasm.wasm').catch(() => console.warn("WASM cache failed."));
     }),
   );
 });
