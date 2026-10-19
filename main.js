@@ -22,6 +22,123 @@ const isMac =
   navigator.platform.toUpperCase().indexOf("MAC") >= 0 ||
   navigator.userAgent.toUpperCase().indexOf("MAC") >= 0;
 
+const HASHTAG_RE = /[#＃][^\s　,、。\.・()（）「」]+/g;
+
+function safeLocalStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function stripHashtags(text) {
+  return String(text || "")
+    .replace(HASHTAG_RE, "")
+    .replace(/[\s　]+/g, " ")
+    .trim();
+}
+
+function extractHashtags(text) {
+  return String(text || "").match(HASHTAG_RE) || [];
+}
+
+function isJapaneseUi() {
+  const lang =
+    document.documentElement.lang ||
+    safeLocalStorageGet("app_lang") ||
+    (navigator.language || "en").split("-")[0];
+  return String(lang).toLowerCase().startsWith("ja");
+}
+
+function composeDisplayName(familyName, givenName) {
+  const family = (familyName || "").trim();
+  const given = (givenName || "").trim();
+  if (isJapaneseUi()) {
+    return [family, given].filter(Boolean).join(" ").trim();
+  }
+  return [given, family].filter(Boolean).join(" ").trim();
+}
+
+function splitDisplayName(name) {
+  const cleaned = stripHashtags(name);
+  const parts = cleaned.split(/[\s　]+/).filter(Boolean);
+  if (parts.length === 0) return { family: "", given: "" };
+  if (parts.length === 1) return { family: parts[0], given: "" };
+  if (isJapaneseUi()) {
+    return { family: parts[0], given: parts.slice(1).join(" ") };
+  }
+  return {
+    family: parts[parts.length - 1],
+    given: parts.slice(0, -1).join(" "),
+  };
+}
+
+function normalizeBirthdayForInput(value) {
+  if (!value) return "";
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{8}$/.test(s)) {
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})[T\s]/);
+  if (iso) return iso[1];
+  return "";
+}
+
+function isPeopleDatabase(database) {
+  if (!database) return false;
+  try {
+    const res = database.exec("PRAGMA table_info(records)");
+    if (!res || !res.length || !res[0].values) return false;
+    const columns = res[0].values.map((col) => col[1]);
+    return columns.includes("id") && columns.includes("memo");
+  } catch (e) {
+    return false;
+  }
+}
+
+function sanitizeCsvCell(value) {
+  let cell = String(value || "");
+  // Formula injection: keep leading + / - when the rest looks like a phone number
+  if (/^[=@]/.test(cell) || /^[+\-](?!\d)/.test(cell)) {
+    cell = "'" + cell;
+  }
+  return `"${cell.replace(/"/g, '""')}"`;
+}
+
+function unescapeVCardValue(value) {
+  return String(value || "")
+    .replace(/\\\\/g, "\u0000")
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\u0000/g, "\\");
+}
+
+function decodeQuotedPrintable(str) {
+  const packed = String(str || "")
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    );
+  try {
+    const bytes = Uint8Array.from(packed, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  } catch (e) {
+    return packed;
+  }
+}
+
 let customRoleDict = []; // Custom role dictionary array
 
 // --- Scroll Lock Control (Layout Shift Prevention) ---
@@ -60,7 +177,7 @@ function toggleMainUI(disabled) {
 
 // --- Dark Mode Management ---
 function initDarkMode() {
-  const saved = localStorage.getItem("theme");
+  const saved = safeLocalStorageGet("theme");
   if (
     saved === "dark" ||
     (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -85,7 +202,7 @@ function toggleDarkMode() {
 function executeThemeToggle() {
   const isDark = document.documentElement.classList.toggle("dark");
   document.documentElement.style.colorScheme = isDark ? "dark" : "light";
-  localStorage.setItem("theme", isDark ? "dark" : "light");
+  safeLocalStorageSet("theme", isDark ? "dark" : "light");
   updateMetaThemeColor(isDark);
 }
 
@@ -102,7 +219,7 @@ initDarkMode();
 window
   .matchMedia("(prefers-color-scheme: dark)")
   .addEventListener("change", (e) => {
-    if (!localStorage.getItem("theme")) {
+    if (!safeLocalStorageGet("theme")) {
       const isDark = e.matches;
       document.documentElement.classList.toggle("dark", isDark);
       updateMetaThemeColor(isDark);
@@ -571,15 +688,23 @@ function handlePlainTextPaste(event) {
 
 // --- Feature: Smart Paste (Signature Parser) ---
 function parseSignatureData(text) {
-  const emailMatch = text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-  const phoneMatch = text.match(/(?:TEL|Phone|電話|Mobile|携帯)?(?:[\s:：]{0,5})(\+?\d{1,4}?[\s-]?(?:\(\d{1,4}\)|\d{1,4})[\s-]?\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4})/i);
+  const emailMatch = text.match(
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
+  );
+  // JP (090-1234-5678), NANP, and intl (+81 ...) — avoid requiring too many digit groups
+  const phoneMatch = text.match(
+    /(?:(?:TEL|Phone|Tel|電話|Mobile|携帯|FAX)[\s:：]*)?(\+?\d[\d\s().-]{6,}\d)/i,
+  );
 
   if (!emailMatch && !phoneMatch) return null;
 
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
   let name = lines[0] || "";
   let email = emailMatch ? emailMatch[1] : "";
-  let phone = phoneMatch ? phoneMatch[1] : "";
+  let phone = phoneMatch ? phoneMatch[1].replace(/\s+/g, " ").trim() : "";
 
   if (name.includes(":") || name.includes("：")) {
     name = name.split(/[:：]/)[1].trim();
@@ -590,11 +715,35 @@ function parseSignatureData(text) {
   else if (phone && email) contactInfo = `${email} / ${phone}`;
 
   let role = "";
-  // Unified keyword list
-  const roleKeywords = ["部", "長", "課", "班", "代表", "役員", "CEO", "CTO", "Manager", "Director", "Lead", "担当"];
+  const roleKeywords = [
+    "部",
+    "長",
+    "課",
+    "班",
+    "代表",
+    "役員",
+    "主任",
+    "係長",
+    "マネージャー",
+    "担当",
+    "役職",
+    "CEO",
+    "CTO",
+    "CFO",
+    "COO",
+    "VP",
+    "Manager",
+    "Director",
+    "Lead",
+    "Engineer",
+    "Designer",
+    "President",
+    "Founder",
+    "Consultant",
+  ];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    if (line !== name && !line.includes(email) && !line.includes(phone)) {
+    if (line !== name && !line.includes(email) && !(phone && line.includes(phone))) {
       if (roleKeywords.some((kw) => line.includes(kw))) {
         role = line;
         break;
@@ -1080,7 +1229,7 @@ function parseVCardText(text) {
       const colonIdx = line.indexOf(":");
       if (colonIdx < 0) continue;
       const left = line.substring(0, colonIdx);
-      const value = line.substring(colonIdx + 1).trim();
+      let value = line.substring(colonIdx + 1).trim();
       if (!value) continue;
       const parts = left.split(";");
       const propName = parts[0].toUpperCase();
@@ -1089,6 +1238,13 @@ function parseVCardText(text) {
       const typeVal = typeParam
         ? typeParam.replace("TYPE=", "").toLowerCase().split(",")[0]
         : "other";
+      const isQp = params.some(
+        (p) =>
+          p === "ENCODING=QUOTED-PRINTABLE" ||
+          p.includes("QUOTED-PRINTABLE"),
+      );
+      if (isQp) value = decodeQuotedPrintable(value);
+      if (propName !== "NOTE") value = unescapeVCardValue(value);
       switch (propName) {
         case "FN":
           contact.displayName = value;
@@ -1098,13 +1254,13 @@ function parseVCardText(text) {
           if (np[0])
             contact.fields.push({
               key: "family_name",
-              value: np[0],
+              value: stripHashtags(np[0]),
               type: "other",
             });
           if (np[1])
             contact.fields.push({
               key: "given_name",
-              value: np[1],
+              value: stripHashtags(np[1]),
               type: "other",
             });
           if (np[2])
@@ -1153,11 +1309,12 @@ function parseVCardText(text) {
         case "TEL": {
           let pt = "other";
           const tl = params.join(",").toLowerCase();
-          if (tl.includes("cell") || tl.includes("mobile")) pt = "mobile";
+          // FAX before WORK/HOME so TYPE=FAX,WORK is not misclassified as work voice
+          if (tl.includes("fax"))
+            pt = tl.includes("home") ? "fax_home" : "fax_work";
+          else if (tl.includes("cell") || tl.includes("mobile")) pt = "mobile";
           else if (tl.includes("work")) pt = "work";
           else if (tl.includes("home")) pt = "home";
-          else if (tl.includes("fax"))
-            pt = tl.includes("work") ? "fax_work" : "fax_home";
           contact.fields.push({ key: "phone", value, type: pt });
           break;
         }
@@ -1197,14 +1354,9 @@ function parseVCardText(text) {
           break;
         }
         case "NOTE": {
-          const unescapedNote = value
-            .replace(/\\\\/g, "\\")
-            .replace(/\\n/gi, "\n")
-            .replace(/\\,/g, ",")
-            .replace(/\\;/g, ";");
           contact.fields.push({
             key: "note",
-            value: unescapedNote,
+            value: unescapeVCardValue(value),
             type: "other",
           });
           break;
@@ -3463,6 +3615,7 @@ async function savePeopleFile(isSaveAs = false) {
     lastSavedPasswordHash = currentPasswordHash;
   } catch (err) {
     console.error("Save failed:", err);
+    showToast(window._t("error.save_fail"), "⚠️", "error");
   } finally {
     isSaving = false;
     if (activeSelector) {
@@ -3558,11 +3711,31 @@ async function processFileHandle(handle) {
       throw new Error("Invalid SQLite database file.");
     }
 
-    if (db) {
-      db.close();
+    if (!isPeopleDatabase(newDb)) {
+      try {
+        newDb.close();
+      } catch (e) {}
+      showToast(window._t("error.invalid_people_file"), "⚠️", "error");
+      hideStatus();
+      return;
     }
+
+    const previousDb = db;
     db = newDb;
-    migrateDatabase();
+    try {
+      migrateDatabase();
+    } catch (migrateErr) {
+      db = previousDb;
+      try {
+        newDb.close();
+      } catch (e) {}
+      throw migrateErr;
+    }
+    if (previousDb) {
+      try {
+        previousDb.close();
+      } catch (e) {}
+    }
 
     loadSettingsFromDb(); // Reflect file-specific settings to UI
 
@@ -3585,7 +3758,12 @@ async function processFileHandle(handle) {
     hideStatus();
   } catch (err) {
     console.log("Open cancelled or failed.", err);
-    showToast(window._t("error.file_load_fail"), "⚠️", "error");
+    const msg =
+      err && err.message === "Invalid SQLite database file."
+        ? window._t("error.invalid_people_file")
+        : window._t("error.file_load_fail");
+    showToast(msg, "⚠️", "error");
+    hideStatus();
   }
 }
 
@@ -3660,7 +3838,7 @@ function showExportModal() {
     infoEl.innerHTML = window._t("export.period_info", periodText);
   }
 
-  const lastFormat = localStorage.getItem("lastExportFormat");
+  const lastFormat = safeLocalStorageGet("lastExportFormat");
   if (lastFormat) {
     const selectEl = document.getElementById("export-format");
     if (selectEl && selectEl.querySelector(`option[value="${lastFormat}"]`)) {
@@ -3684,7 +3862,7 @@ function closeExportModal() {
 
 function executeExport() {
   const format = document.getElementById("export-format").value;
-  localStorage.setItem("lastExportFormat", format);
+  safeLocalStorageSet("lastExportFormat", format);
   closeExportModal();
   exportCSV(format);
 }
@@ -3719,11 +3897,9 @@ function generateVCardData(items) {
     const contactInfo = item.contact_info || "";
     const org = item.org || "";
 
-    // Supreme cleansing function: Remove hashtags (like #Organizer) from names and organizations
-    let cleanName = rawName
-      .replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "")
-      .trim();
-    let cleanOrg = org.replace(/[#＃][^\s　,、。\.・()（）「」]+/g, "").trim();
+    // Remove hashtags (like #Organizer) from names and organizations
+    let cleanName = stripHashtags(rawName);
+    let cleanOrg = stripHashtags(org);
     let cleanRole = role || "";
     let cleanContact = contactInfo || "";
 
@@ -3760,9 +3936,20 @@ function generateVCardData(items) {
 
     fields.forEach((f) => {
       if (!f.field_value) return;
-      const v = f.field_key !== "note" 
-        ? f.field_value.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1")
-        : f.field_value;
+      let v =
+        f.field_key !== "note"
+          ? String(f.field_value).replace(/[\r\n]+/g, " ")
+          : f.field_value;
+      if (
+        f.field_key === "family_name" ||
+        f.field_key === "given_name" ||
+        f.field_key === "middle_name"
+      ) {
+        v = stripHashtags(v);
+      }
+      if (f.field_key !== "note") {
+        v = v.replace(/([;,])/g, "\\$1");
+      }
       if (f.field_key === "family_name") fName = v;
       if (f.field_key === "given_name") gName = v;
       if (f.field_key === "middle_name") mName = v;
@@ -3811,16 +3998,16 @@ function generateVCardData(items) {
       vcardData += `CATEGORIES:${allTags.join(",")}\r\n`;
     }
 
+    let wroteEmail = false;
+    let wrotePhone = false;
     if (fields.length > 0) {
-      let addresses = {};
+      const addresses = {};
       fields.forEach((f) => {
         if (!f.field_value) return;
-        // 🎯 Fix: Force cast to string to prevent .replace() crash when SQLite returns a numeric type
+        // Force cast to string to prevent .replace() crash when SQLite returns a numeric type
         let v = String(f.field_value);
-        // Prevent format corruption by removing newlines from fields (except notes)
         if (f.field_key !== "note") {
           v = v.replace(/[\r\n]+/g, " ");
-          // Exempt URLs from escaping because they contain legitimate symbols like ; and ,
           if (f.field_key !== "url") {
             v = v.replace(/([;,])/g, "\\$1");
           }
@@ -3830,6 +4017,7 @@ function generateVCardData(items) {
         switch (f.field_key) {
           case "email":
             vcardData += `EMAIL;TYPE=INTERNET,${t}:${v}\r\n`;
+            wroteEmail = true;
             break;
           case "phone":
             let telType = "CELL";
@@ -3839,19 +4027,19 @@ function generateVCardData(items) {
             else if (t === "FAX_HOME") telType = "FAX,HOME";
             else if (t === "MAIN") telType = "MAIN";
             vcardData += `TEL;TYPE=${telType}:${v}\r\n`;
+            wrotePhone = true;
             break;
           case "url":
             vcardData += `URL:${v}\r\n`;
             break;
           case "note":
-            // vCard Injection and other control character sanitization
             const sanitizedV = v
-              .replace(/BEGIN:/gi, '(BEGIN):')
-              .replace(/END:/gi, '(END):');
+              .replace(/BEGIN:/gi, "(BEGIN):")
+              .replace(/END:/gi, "(END):");
             const escapedV = sanitizedV
-              .replace(/\\/g, '\\\\')
-              .replace(/,/g, '\\,')
-              .replace(/;/g, '\\;')
+              .replace(/\\/g, "\\\\")
+              .replace(/,/g, "\\,")
+              .replace(/;/g, "\\;")
               .replace(/\r?\n/g, "\\n");
             vcardData += `NOTE:${escapedV}\r\n`;
             break;
@@ -3863,36 +4051,54 @@ function generateVCardData(items) {
           case "social_instagram":
           case "social_line":
             let socialType = f.field_key.replace("social_", "");
-            if (socialType === "x") socialType = "twitter"; // Apple Contacts App compatibility
+            if (socialType === "x") socialType = "twitter";
             vcardData += `X-SOCIALPROFILE;type=${socialType}:${v}\r\n`;
             break;
           default:
             if (f.field_key.startsWith("addr_")) {
               const addrType = f.field_type || "home";
-              if (!addresses[addrType]) addresses[addrType] = {};
-              addresses[addrType][f.field_key] = v;
+              const order = f.sort_order ?? 0;
+              const bucketKey = `${addrType}\0${order}`;
+              if (!addresses[bucketKey]) {
+                addresses[bucketKey] = { type: addrType, parts: {} };
+              }
+              addresses[bucketKey].parts[f.field_key] = v;
             }
             break;
         }
       });
-      Object.keys(addresses).forEach((type) => {
-        const a = addresses[type];
+      Object.values(addresses).forEach(({ type, parts: a }) => {
         const street = a.addr_street || "";
         const city = a.addr_city || "";
         const region = a.addr_region || "";
         const postal = a.addr_postal || "";
         const country = a.addr_country || "";
-        const adrType = type.toUpperCase() === "WORK" ? "WORK" : "HOME";
+        const adrType = String(type).toUpperCase() === "WORK" ? "WORK" : "HOME";
         if (street || city || region || postal || country) {
           vcardData += `ADR;TYPE=${adrType}:;;${street};${city};${region};${postal};${country}\r\n`;
         }
       });
-    } else {
-      if (cleanContact.toString().includes("@")) {
-        vcardData += `EMAIL;TYPE=INTERNET:${cleanContact}\r\n`;
-      } else if (cleanContact) {
-        vcardData += `TEL;TYPE=CELL:${cleanContact}\r\n`;
-      }
+    }
+
+    // contact_info fallback when detail fields lack email/phone (e.g. only job_title exists)
+    if (cleanContact) {
+      const parts = String(contactInfo || "")
+        .split(/\s+\/\s+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const fallbackParts = parts.length ? parts : [String(contactInfo).trim()];
+      fallbackParts.forEach((part) => {
+        const v = part.replace(/[\r\n]+/g, " ").replace(/([;,])/g, "\\$1");
+        if (part.includes("@")) {
+          if (!wroteEmail) {
+            vcardData += `EMAIL;TYPE=INTERNET:${v}\r\n`;
+            wroteEmail = true;
+          }
+        } else if (part && !wrotePhone) {
+          vcardData += `TEL;TYPE=CELL:${v}\r\n`;
+          wrotePhone = true;
+        }
+      });
     }
 
     vcardData += "END:VCARD\r\n";
@@ -4075,18 +4281,7 @@ function exportQRCoderCSV() {
   }
 
   const csv = rows
-    .map((r) =>
-      r
-        .map((v) => {
-          let cell = String(v || "");
-          // 🔴 CSV Injection (Formula Injection) Protection
-          if (/^[=+\-@]/.test(cell)) {
-            cell = "'" + cell;
-          }
-          return `"${cell.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    )
+    .map((r) => r.map((v) => sanitizeCsvCell(v)).join(","))
     .join("\r\n");
 
   let baseName = "qrcoder_vcard";
@@ -4771,11 +4966,29 @@ function showContactDetail(recordId) {
 
   const fields = getContactFields(recordId);
 
-  // Set single field
+  // Set single field (prefer home address / first URL; preserve others on save)
   for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
     const el = document.getElementById(elId);
     if (!el) continue;
-    const f = fields.find((f) => f.field_key === fieldKey);
+    let f;
+    if (fieldKey.startsWith("addr_")) {
+      f =
+        fields.find(
+          (x) => x.field_key === fieldKey && (x.field_type || "home") === "home",
+        ) || fields.find((x) => x.field_key === fieldKey);
+    } else if (fieldKey === "url") {
+      f = fields.find((x) => x.field_key === "url");
+    } else if (fieldKey === "birthday") {
+      f = fields.find((x) => x.field_key === "birthday");
+      const raw = f?.field_value || "";
+      const normalized = normalizeBirthdayForInput(raw);
+      el.value = normalized;
+      if (raw && !normalized) el.dataset.preserveValue = raw;
+      else delete el.dataset.preserveValue;
+      continue;
+    } else {
+      f = fields.find((x) => x.field_key === fieldKey);
+    }
     if (el.tagName === "TEXTAREA") el.value = f?.field_value || "";
     else el.value = f?.field_value || "";
   }
@@ -4807,15 +5020,11 @@ function showContactDetail(recordId) {
   const fNameEl = document.getElementById("detail-family-name");
   const gNameEl = document.getElementById("detail-given-name");
 
-  // Automatically split only if both first and last names are empty and main name (records.memo) exists
+  // Auto-split only if both names empty; strip hashtags; respect UI language order
   if (!fNameEl.value && !gNameEl.value && name) {
-    const parts = name.trim().split(/[\s　]+/); // Split by half/full-width space
-    if (parts.length > 1) {
-      fNameEl.value = parts[0];
-      gNameEl.value = parts.slice(1).join(" ");
-    } else {
-      fNameEl.value = name; // Allocate entirely to last name if no space
-    }
+    const split = splitDisplayName(name);
+    fNameEl.value = split.family;
+    gNameEl.value = split.given;
   }
 
   // Construct multiple lines for phone number
@@ -4899,12 +5108,24 @@ function addDetailPhoneRow(value = "", type = "mobile", autoFocus = true) {
   const container = document.getElementById("detail-phones");
   const row = document.createElement("div");
   row.className = "flex items-center gap-2";
+  const safeType = [
+    "mobile",
+    "work",
+    "home",
+    "fax_work",
+    "fax_home",
+    "other",
+  ].includes(type)
+    ? type
+    : "other";
   row.innerHTML = `
-    <select class="detail-phone-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-24 sm:w-20 shrink-0">
-      <option value="mobile" ${type === "mobile" ? "selected" : ""}>${window._t("opt.mobile")}</option>
-      <option value="work" ${type === "work" ? "selected" : ""}>${window._t("opt.work")}</option>
-      <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.home")}</option>
-      <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
+    <select class="detail-phone-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-28 sm:w-24 shrink-0">
+      <option value="mobile" ${safeType === "mobile" ? "selected" : ""}>${window._t("opt.mobile")}</option>
+      <option value="work" ${safeType === "work" ? "selected" : ""}>${window._t("opt.work")}</option>
+      <option value="home" ${safeType === "home" ? "selected" : ""}>${window._t("opt.home")}</option>
+      <option value="fax_work" ${safeType === "fax_work" ? "selected" : ""}>${window._t("opt.fax_work")}</option>
+      <option value="fax_home" ${safeType === "fax_home" ? "selected" : ""}>${window._t("opt.fax_home")}</option>
+      <option value="other" ${safeType === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
     <input type="tel" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
@@ -4972,16 +5193,37 @@ function saveContactDetail() {
     );
     if (!recordId || !db) throw new Error("Invalid ID or DB");
 
-    // 💡 Fix: Only delete items handled by the modal, protecting unknown extended data instead of deleting all existing fields
-    const targetKeys = [...Object.values(DETAIL_FIELD_MAP), "phone", "email"];
-    const placeholders = targetKeys.map(() => "?").join(",");
-    db.run(`DELETE FROM contact_fields WHERE record_id = ? AND field_key IN (${placeholders})`, [recordId, ...targetKeys]);
+    // Delete only fields the modal owns. Keep non-home addresses and extra URLs.
+    const scalarKeys = Object.values(DETAIL_FIELD_MAP).filter(
+      (k) => !k.startsWith("addr_") && k !== "url",
+    );
+    if (scalarKeys.length) {
+      const placeholders = scalarKeys.map(() => "?").join(",");
+      db.run(
+        `DELETE FROM contact_fields WHERE record_id = ? AND field_key IN (${placeholders})`,
+        [recordId, ...scalarKeys],
+      );
+    }
+    db.run(
+      "DELETE FROM contact_fields WHERE record_id = ? AND field_key LIKE 'addr_%' AND IFNULL(field_type, 'home') = 'home'",
+      [recordId],
+    );
+    db.run(
+      "DELETE FROM contact_fields WHERE record_id = ? AND field_key = 'url' AND sort_order = 0",
+      [recordId],
+    );
+    db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key IN ('phone', 'email')", [
+      recordId,
+    ]);
 
     // Save single field
     for (const [elId, fieldKey] of Object.entries(DETAIL_FIELD_MAP)) {
       const el = document.getElementById(elId);
       if (!el) continue;
-      const val = el.value?.trim();
+      let val = el.value?.trim();
+      if (fieldKey === "birthday" && !val && el.dataset.preserveValue) {
+        val = el.dataset.preserveValue;
+      }
       if (val) {
         const ft = fieldKey.startsWith("addr_") ? "home" : "other";
         setContactField(recordId, fieldKey, val, ft, 0);
@@ -5028,12 +5270,23 @@ function saveContactDetail() {
       ]);
     } catch (e) {}
 
-    // Generate full name from last/first name and sync with records.memo
+    // Sync display name; keep inline hashtags from the previous memo
     const familyName =
       document.getElementById("detail-family-name")?.value?.trim() || "";
     const givenName =
       document.getElementById("detail-given-name")?.value?.trim() || "";
-    const fullName = (familyName + " " + givenName).trim();
+    let previousMemo = "";
+    let memoStmt;
+    try {
+      memoStmt = db.prepare("SELECT memo FROM records WHERE id = ?");
+      memoStmt.bind([recordId]);
+      if (memoStmt.step()) previousMemo = memoStmt.get()[0] || "";
+    } finally {
+      if (memoStmt) memoStmt.free();
+    }
+    const baseName = composeDisplayName(familyName, givenName);
+    const keptTags = extractHashtags(previousMemo);
+    const fullName = [baseName, ...keptTags].filter(Boolean).join(" ").trim();
     try {
       db.run("UPDATE records SET memo = ? WHERE id = ?", [
         fullName || null,
@@ -5137,19 +5390,7 @@ function exportPlatformCSV(platform) {
     return;
   }
   const csv = rows
-    .map((r) =>
-      r
-        .map((v) => {
-          // Explicitly cast to String to prevent TypeError
-          let cell = String(v || "");
-          // 🔴 CSV Injection (Formula Injection) Protection
-          if (/^[=+\-@]/.test(cell)) {
-            cell = "'" + cell;
-          }
-          return `"${cell.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    )
+    .map((r) => r.map((v) => sanitizeCsvCell(v)).join(","))
     .join("\r\n");
   let baseName = isGoogle ? "google_contacts" : "outlook_contacts";
   if (currentActiveTag) {
@@ -5637,6 +5878,23 @@ document.addEventListener("keydown", (e) => {
       dropOverlay.classList.add("hidden");
       dropOverlay.classList.remove("flex");
       dragCounter = 0;
+      return;
+    }
+
+    const genericModal = document.getElementById("generic-dialog-modal");
+    if (genericModal && !genericModal.classList.contains("hidden")) {
+      e.preventDefault();
+      const btnCancel = document.getElementById("generic-dialog-cancel");
+      const btnSubmit = document.getElementById("generic-dialog-submit");
+      if (btnCancel && !btnCancel.classList.contains("hidden")) btnCancel.click();
+      else if (btnSubmit) btnSubmit.click();
+      return;
+    }
+
+    const pwModal = document.getElementById("password-prompt-modal");
+    if (pwModal && !pwModal.classList.contains("hidden")) {
+      e.preventDefault();
+      document.getElementById("password-prompt-cancel")?.click();
       return;
     }
 
@@ -6133,7 +6391,7 @@ if (!window.isSecureContext) {
   // Initialize language after DOM and all CDN scripts finish loading, then start SQLite
   document.addEventListener("DOMContentLoaded", async () => {
     // Get saved language or browser language
-    const savedLang = localStorage.getItem('app_lang') || navigator.language.split('-')[0];
+    const savedLang = safeLocalStorageGet('app_lang') || navigator.language.split('-')[0];
 
     // Sync UI language selection dropdown
     const langSelect = document.getElementById("lang-select");
@@ -6150,7 +6408,7 @@ if (!window.isSecureContext) {
 
 // Processing when user switches language in settings etc.
 async function changeLanguage(langCode) {
-  localStorage.setItem('app_lang', langCode);
+  safeLocalStorageSet('app_lang', langCode);
   document.documentElement.lang = langCode;
   await window.I18n.init(langCode); // Load new language file and automatically translate HTML
 
@@ -6305,15 +6563,23 @@ document.addEventListener("drop", async (e) => {
 
   if (!file) return;
 
-  // Reset all UI states and initialize to a safe state
+  const extName = file.name.toLowerCase();
+  const isSupported =
+    extName.endsWith(".people") ||
+    extName.endsWith(".vcf") ||
+    extName.endsWith(".csv");
+  if (!isSupported) {
+    showToast(window._t("error.unsupported_drop"), "⚠️", "error");
+    return;
+  }
+
+  // Only reset UI when we will actually import a supported file
   if (isCommandPaletteOpen) toggleCommandPalette();
   closeCSVModal();
   closeExportModal();
   closeRoleDictEditor();
   closeContactDetail(false);
 
-  // Branch processing based on extension
-  const extName = file.name.toLowerCase(); // 💡 Normalize to lowercase for checking
   if (extName.endsWith(".people")) {
     if (isDirty) {
       const isConfirmed = await window.requestCustomPrompt(
@@ -6337,25 +6603,15 @@ document.addEventListener("drop", async (e) => {
       await processFileHandle(dummyHandle);
     }
   } else if (extName.endsWith(".vcf")) {
-    // Drag and drop import of vCard files
     await importVCardFile(file);
   } else if (extName.endsWith(".csv")) {
-    // Utilize hidden <input type="file"> to feed into existing import flow
     const csvInput = document.getElementById("csv-input");
     if (csvInput) {
-      // Create FileList and set to input
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       csvInput.files = dataTransfer.files;
-      // Manually trigger onchange event
       csvInput.dispatchEvent(new Event("change", { bubbles: true }));
     }
-  } else {
-    showToast(
-      window._t("error.unsupported_drop"),
-      "⚠️",
-      "error",
-    );
   }
 });
 

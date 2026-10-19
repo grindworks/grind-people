@@ -49,18 +49,11 @@
   }
   </script>
 
-  <!-- Security: Content Security Policy (CSP) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdnjs.cloudflare.com https://grindsite.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://cdnjs.cloudflare.com ws: wss:; img-src 'self' data: https://grindsite.com;">
+  <!-- Security: Content Security Policy (CSP) — local assets only; unsafe-inline remains for legacy inline handlers -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:;">
 
   <!-- Match OS status bar color to theme -->
   <meta id="meta-theme-color" name="theme-color" content="#f8fafc">
-
-  <!-- Google Fonts (Inter + Noto Sans JP) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+JP:wght@300;400;500;700;800;900&display=swap"
-    rel="stylesheet">
 
   <!-- Load pre-built Tailwind CSS (Offline compatible) -->
   <link rel="stylesheet" href="styles.css">
@@ -80,8 +73,6 @@
   <!-- Home screen icons for iOS -->
   <link rel="apple-touch-icon" href="icon-192.png">
 
-  <!-- Use shared footer.js from one directory up -->
-  <script src="../footer.js" defer></script>
   <script>
     // Complete prevention of FOUC (Flash of Unstyled Content)
     try {
@@ -845,7 +836,7 @@
                 <div class="relative flex items-center">
                   <input type="date" id="detail-birthday"
                     class="bg-slate-50 dark:bg-dark-surface-hover px-2.5 py-1.5 border border-slate-200 focus:border-primary dark:border-dark-border rounded outline-none w-full text-slate-900 dark:text-white text-base sm:text-sm pr-8">
-                  <button type="button" tabindex="-1" onclick="document.getElementById('detail-birthday').value=''" class="absolute right-8 text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer" title="Clear">&times;</button>
+                  <button type="button" tabindex="-1" onclick="const el=document.getElementById('detail-birthday'); el.value=''; delete el.dataset.preserveValue;" class="absolute right-8 text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer" title="Clear">&times;</button>
                 </div>
               </div>
               <div><label for="detail-note" class="block mb-0.5 text-slate-500 dark:text-slate-400 text-xs" data-i18n="detail.note">Notes</label><textarea
@@ -962,40 +953,43 @@
       // Register Service Worker for PWA
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          // First install also fires controllerchange; only notify on real updates
+          let hadController = !!navigator.serviceWorker.controller;
           navigator.serviceWorker.register('sw.js').then(registration => {
             console.log('ServiceWorker registration successful with scope: ', registration.scope);
           }, err => {
             console.log('ServiceWorker registration failed: ', err);
           });
 
-          // 💡 Fires the moment self.skipWaiting() is called on the sw.js side and control switches
           let refreshing = false;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!refreshing) {
-              refreshing = true;
-              if (window.statusTimeoutId) clearTimeout(window.statusTimeoutId);
-              // Stop forced reload, notify via status bar and wait for user click
-              const statusEl = document.getElementById("status");
-              if (statusEl) {
-                statusEl.innerHTML = `
+            if (!hadController) {
+              hadController = true;
+              return;
+            }
+            if (refreshing) return;
+            refreshing = true;
+            if (window.statusTimeoutId) clearTimeout(window.statusTimeoutId);
+            const statusEl = document.getElementById("status");
+            if (statusEl) {
+              statusEl.innerHTML = `
                   <span class="text-blue-400">✨</span>
                   ${window._t('update.ready')}
                   <button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">${window._t('update.apply')}</button>
                   <button onclick="this.parentElement.classList.remove('opacity-100', 'translate-y-0'); this.parentElement.classList.add('opacity-0', '-translate-y-4'); this.parentElement.style.pointerEvents='none';" class="ml-3 text-slate-400 hover:text-white">&times;</button>
                 `;
-                statusEl.className = "flex w-max items-center gap-2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 translate-y-0 opacity-100 pointer-events-auto";
-                statusEl.style.pointerEvents = "auto";
+              statusEl.className = "flex w-max items-center gap-2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 translate-y-0 opacity-100 pointer-events-auto";
+              statusEl.style.pointerEvents = "auto";
 
-                document.getElementById("btn-reload-app").onclick = async () => {
-                  if (window.getIsDirty && window.getIsDirty()) {
-                    const isConfirmed = await window.requestCustomPrompt(window._t('confirm.title'), window._t('confirm.reload_unsaved'), "", "confirm");
-                    if (!isConfirmed) return;
+              document.getElementById("btn-reload-app").onclick = async () => {
+                if (window.getIsDirty && window.getIsDirty()) {
+                  const isConfirmed = await window.requestCustomPrompt(window._t('confirm.title'), window._t('confirm.reload_unsaved'), "", "confirm");
+                  if (!isConfirmed) return;
 
-                    if (typeof setDirty === 'function') setDirty(false);
-                  }
-                  location.reload();
-                };
-              }
+                  if (typeof setDirty === 'function') setDirty(false);
+                }
+                location.reload();
+              };
             }
           });
         });

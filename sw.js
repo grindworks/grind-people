@@ -1,5 +1,5 @@
 // 💡 Rewrite this on update to trigger an update
-const CACHE_NAME = "grindpeople-v20261012-1";
+const CACHE_NAME = "grindpeople-v20261020-1";
 const urlsToCache = [
   "./",
   "./index.html",

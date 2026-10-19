@@ -10,7 +10,7 @@
 - **Strong Security:** Data saving must pass through Web Crypto API (`AES-256-GCM`) when a password is provided.
 - **Absolute Portability (CRITICAL):**
   - **Zero Build Tools:** Do NOT suggest adding `npm`, `Webpack`, `Vite`, or ES Modules that require a build step. The system MUST work instantly by just opening `index.html` in a modern browser.
-  - **No External Dependencies for Assets:** Do NOT suggest external CDNs for images or icons. Everything needed for the UI must be inline to guarantee offline functionality.
+  - **No External Dependencies for Assets:** Do NOT suggest external CDNs for images, icons, or fonts. Everything needed for the UI must be local (or OS fonts) to guarantee offline functionality with no automatic network use.
 
 ## 2. Coding Standards & Data Handling
 
@@ -29,7 +29,7 @@
 - **Micro-Interactions & UX:**
   - Enhance the "Grind (fast input)" experience. Ensure form submissions do not cause page reloads (`event.preventDefault()`).
   - Maintain focus on input fields programmatically after actions.
-  - Ensure UI transitions do not cause layout shifts (CLS). Use `@formkit/auto-animate` for smooth DOM insertions/deletions.
+  - Ensure UI transitions do not cause layout shifts (CLS).
 - **Minimalist Hacker Vibe:** Keep the UI clean. Hide complex actions in the Command Palette (`Cmd+K`).
 
 ## 4. AI Directives

@@ -29,7 +29,9 @@ window.I18n = (() => {
             }
 
             // Save state and reflect in HTML
-            localStorage.setItem('app_lang', currentLang);
+            try {
+                localStorage.setItem('app_lang', currentLang);
+            } catch (e) {}
             document.documentElement.lang = currentLang;
             this.updateDOM();
         },

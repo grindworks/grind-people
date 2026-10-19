@@ -7,7 +7,7 @@
   --color-primary: #0f62fe;
   --color-primary-hover: #0353e9;
   --color-primary-50: #eff4ff;
-  --font-sans: "Inter", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 
   /* ダークモード用サーフェスカラー */
   --color-dark-bg: #0b0f1a;

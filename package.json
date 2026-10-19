@@ -1,10 +1,7 @@
 {
   "name": "grindpeople",
   "scripts": {
-    "build:css": "npx tailwindcss -i ./input.css -o ./styles.css --minify",
-    "watch:css": "npx tailwindcss -i ./input.css -o ./styles.css --watch"
-  },
-  "devDependencies": {
-    "tailwindcss": "^3.4.0"
+    "build:css": "./tailwindcss-macos-arm64 -i ./input.css -o ./styles.css --minify",
+    "watch:css": "./tailwindcss-macos-arm64 -i ./input.css -o ./styles.css --watch"
   }
 }
