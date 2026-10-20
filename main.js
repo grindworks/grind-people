@@ -1756,40 +1756,32 @@ function hideStatus() {
   }, 3000);
 }
 
-// Helper function to display toast notifications (Stack supported)
+// Toast: one dark pill at the top center; a new toast replaces the old one
+let toastTimeoutId = null;
 function showToast(message, iconHtml = "✅", type = "normal") {
-  let container = document.getElementById("toast-container");
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "toast-container";
-    container.setAttribute("aria-live", "polite");
-    container.className =
-      "fixed bottom-10 sm:bottom-12 inset-x-0 z-[9999] flex flex-col-reverse items-center gap-2 pointer-events-none px-4 pb-[env(safe-area-inset-bottom)]";
-    document.body.appendChild(container);
+  let toast = document.getElementById("app-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "app-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    document.body.appendChild(toast);
   }
+  if (toastTimeoutId) clearTimeout(toastTimeoutId);
 
-  const toast = document.createElement("div");
-
-  const bgClass =
+  const tint =
     type === "error"
-      ? "bg-red-500/90 border-red-600/50"
+      ? "text-red-400"
       : type === "warning"
-        ? "bg-red-900/90 border-red-700/50"
-        : "bg-slate-800/90 border-slate-700/50";
+        ? "text-amber-400"
+        : "";
+  toast.innerHTML = `<span class="${tint}">${iconHtml}</span> <span class="break-all line-clamp-2">${message}</span>`;
+  toast.className =
+    "fixed inset-x-0 top-4 sm:top-8 z-[9999] mx-auto flex w-max max-w-[90vw] items-center gap-2 rounded-full border border-slate-800/50 bg-slate-900 px-5 py-2.5 text-xs font-medium text-white shadow-xl pointer-events-none animate-toast-in";
 
-  toast.innerHTML = `${iconHtml} <span class="break-all line-clamp-2">${message}</span>`;
-  toast.className = `backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border transition-all duration-300 flex items-center gap-2 animate-toast-in ${bgClass}`;
-
-  container.appendChild(toast);
-
-  // Limit max display to 3 items to prevent filling the screen
-  while (container.childElementCount > 3) {
-    container.firstChild.remove();
-  }
-
-  setTimeout(() => {
+  toastTimeoutId = setTimeout(() => {
     toast.classList.replace("animate-toast-in", "animate-toast-out");
-    setTimeout(() => toast.remove(), 300);
+    toastTimeoutId = setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
 
@@ -6766,7 +6758,7 @@ function showUpdateToast() {
   toast.id = "update-toast";
   toast.setAttribute("role", "status");
   toast.className =
-    "fixed inset-x-0 bottom-24 z-[9999] mx-auto flex w-max max-w-[90vw] items-center gap-3 rounded-full border border-slate-800/50 bg-slate-900/95 py-2 pr-2 pl-5 text-xs font-medium text-white shadow-xl backdrop-blur-sm";
+    "fixed inset-x-0 bottom-6 z-[9999] mx-auto flex w-max max-w-[90vw] items-center gap-3 rounded-full border border-slate-800/50 bg-slate-900/95 py-2 pr-2 pl-5 text-xs font-medium text-white shadow-xl backdrop-blur-sm";
   const label = document.createElement("span");
   label.textContent = `✨ ${window._t("update.ready")}`;
   const apply = document.createElement("button");
