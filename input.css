@@ -207,14 +207,7 @@
   animation: var(--animate-glow-pulse);
 }
 
-/* ダークモードのスムーズトランジション */
 @layer base {
-  html {
-    transition:
-      background-color 0.3s ease,
-      color 0.3s ease;
-  }
-
   /* フォーカスリングの統一スタイル */
   :focus-visible {
     outline: 2px solid var(--color-primary);
