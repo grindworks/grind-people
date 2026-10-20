@@ -949,52 +949,6 @@
     <!-- Load JavaScript as external file -->
     <script src="i18n.js" defer></script>
     <script src="main.js" defer></script>
-    <script>
-      // Register Service Worker for PWA
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          // First install also fires controllerchange; only notify on real updates
-          let hadController = !!navigator.serviceWorker.controller;
-          navigator.serviceWorker.register('sw.js').then(registration => {
-            console.log('ServiceWorker registration successful with scope: ', registration.scope);
-          }, err => {
-            console.log('ServiceWorker registration failed: ', err);
-          });
-
-          let refreshing = false;
-          navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (!hadController) {
-              hadController = true;
-              return;
-            }
-            if (refreshing) return;
-            refreshing = true;
-            if (window.statusTimeoutId) clearTimeout(window.statusTimeoutId);
-            const statusEl = document.getElementById("status");
-            if (statusEl) {
-              statusEl.innerHTML = `
-                  <span class="text-blue-400">✨</span>
-                  ${window._t('update.ready')}
-                  <button id="btn-reload-app" class="ml-2 font-bold underline cursor-pointer">${window._t('update.apply')}</button>
-                  <button onclick="this.parentElement.classList.remove('opacity-100', 'translate-y-0'); this.parentElement.classList.add('opacity-0', '-translate-y-4'); this.parentElement.style.pointerEvents='none';" class="ml-3 text-slate-400 hover:text-white">&times;</button>
-                `;
-              statusEl.className = "flex w-max items-center gap-2 bg-slate-800/90 backdrop-blur-sm text-white px-5 py-2.5 rounded-full text-xs font-medium shadow-xl border border-slate-700/50 transition-all duration-500 translate-y-0 opacity-100 pointer-events-auto";
-              statusEl.style.pointerEvents = "auto";
-
-              document.getElementById("btn-reload-app").onclick = async () => {
-                if (window.getIsDirty && window.getIsDirty()) {
-                  const isConfirmed = await window.requestCustomPrompt(window._t('confirm.title'), window._t('confirm.reload_unsaved'), "", "confirm");
-                  if (!isConfirmed) return;
-
-                  if (typeof setDirty === 'function') setDirty(false);
-                }
-                location.reload();
-              };
-            }
-          });
-        });
-      }
-    </script>
 </body>
 
 </html>

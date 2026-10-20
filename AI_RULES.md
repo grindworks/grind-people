@@ -1,39 +1,37 @@
 # GrindPeople AI Rules
 
-> Shared rules for every Grind product: [`../AGENTS.md`](../AGENTS.md). This file adds GrindPeople (PWA) rules and wins where the two differ.
+> Product type: PWA. Shared rules: [`../AGENTS.md`](../AGENTS.md) §1, §2, §4, §6 and the PWA rules in §7. This file adds GrindPeople (PWA) rules and wins where the two differ.
+> The `.people` file (SQLite, optional `GRINDEN2` encryption) is also read and written by `../grind-people-mac`, and the two must stay byte-compatible. Check `../grind-people-mac/docs/people-file-format.md` before changing the schema, the format or the encryption (this includes the file password feature).
 
-## 1. Environment & Architecture
+## 1. Stack
 
-- **Serverless & Offline-First (PWA):** No Backend (No PHP, No Node.js). The application MUST run entirely in the browser using HTML, Vanilla JavaScript, and Tailwind CSS.
-- **Wasm SQLite (`sql.js`):** Database operations are performed in-memory via WebAssembly. Always remember to manage memory properly (e.g., `stmt.free()`, `db.close()` before re-instantiating) to prevent memory leaks.
-- **Local File Management:** Read/Write operations are strictly handled via the **File System Access API**. Never suggest uploading files to a server.
-- **Strong Security:** Data saving must pass through Web Crypto API (`AES-256-GCM`) when a password is provided.
-- **Absolute Portability (CRITICAL):**
-  - **Zero Build Tools:** Do NOT suggest adding `npm`, `Webpack`, `Vite`, or ES Modules that require a build step. The system MUST work instantly by just opening `index.html` in a modern browser.
-  - **No External Dependencies for Assets:** Do NOT suggest external CDNs for images, icons, or fonts. Everything needed for the UI must be local (or OS fonts) to guarantee offline functionality with no automatic network use.
+- Vanilla JavaScript, no frontend framework.
+- Wasm SQLite (`sql.js`): the database lives in memory. Manage memory explicitly (`stmt.free()`, `db.close()` before re-instantiating) to prevent leaks.
+- Tailwind CSS v4.2.4 via `./build.sh`, which runs `./tailwindcss-macos-arm64`. The binary is git-ignored; place it manually.
 
-## 2. Coding Standards & Data Handling
+## 2. Data and files
 
-- **Vanilla JavaScript (Modern ES6+):** Use strict typing conceptually, modern features (arrow functions, template literals, destructuring, Optional Chaining).
-- **SQL Security & Safety:**
-  - ALWAYS use parameterized queries (`db.prepare("... WHERE id = ?")`). Never interpolate variables directly into SQL strings.
-  - SQLite in `sql.js` does not auto-persist. Any operation that modifies data (INSERT, UPDATE, DELETE) MUST set a flag (e.g., `isDirty = true`) to warn the user before they close the tab.
-- **Error Handling (FAIL-SAFE):**
-  - Assume files selected by the user might be corrupted or manipulated. Always wrap decryption and JSON/CSV parsing in robust `try...catch` blocks.
-  - Fail gracefully with user-friendly `alert` or toast notifications, allowing the user to retry without reloading the app.
+- Files: `.people` (the database), plus `.vcf` and `.csv` import/export.
+- SQL: ALWAYS use parameterized queries (`db.prepare("... WHERE id = ?")`). Never interpolate variables into SQL strings.
+- `sql.js` does not auto-persist. Every INSERT, UPDATE or DELETE must call `setDirty(true)` so the user is warned before closing the tab.
+- IndexedDB (`GrindPeopleDB`) holds only the auto-draft of the database (`saveDraft()` on `draftTimer`).
 
-## 3. Frontend (S-Rank UI & Hacker Aesthetic)
+## 3. UI
 
-- **Tailwind CSS:** Use Tailwind utility classes for all styling. Avoid custom CSS in `<style>` blocks unless absolutely necessary.
-- **Icons (Inline SVG Sprites):** Load icons strictly via inline SVG `<use href="#icon-name"></use>`. **NEVER** use external files like `sprite.svg` or icon fonts, as they break when the PWA is offline.
-- **Micro-Interactions & UX:**
-  - Enhance the "Grind (fast input)" experience. Ensure form submissions do not cause page reloads (`event.preventDefault()`).
-  - Maintain focus on input fields programmatically after actions.
-  - Ensure UI transitions do not cause layout shifts (CLS).
-- **Minimalist Hacker Vibe:** Keep the UI clean. Hide complex actions in the Command Palette (`Cmd+K`).
+- Look, top bar, shortcuts, toasts, dialogs, wording and languages follow shared §7 UI. Do not restate them here; add only what differs.
+- Product-specific top-bar controls: the Settings button, placed before the file password field. The Settings dialog must not hold a theme choice (light only).
+- UI languages: English and Japanese, in `lang/`, applied by `i18n.js`. This is the reference implementation; the other apps move to it.
 
-## 4. AI Directives
+## 4. Known gaps against shared §7
 
-- **Deep Contextual Analysis:** Do not act like a naive static analysis tool. Analyze actual data flow in the browser memory before suggesting "optimizations."
-- **Respect Design Philosophy:** Maintain the "Serverless & Subscription-free" nature of the tool. If a feature requires heavy processing, rely on the user's local machine or "BYO-AI (Bring Your Own AI)" via prompt generation, rather than suggesting API integrations that require API keys in the code.
-- **Language:** Output chat explanations in **Japanese**. Code, comments, and **Git commit messages** strictly in **English**.
+- `sw.js` has an inline offline fallback page with Japanese text.
+- Dark mode: remove it. `input.css` has the class-based `dark` variant and `dark-*` color tokens, `index.html` has about 120 `dark:` classes, and `main.js` toggles the `dark` class and `meta-theme-color`. Delete all of them and set `color-scheme: light`.
+- The `primary` token has the old value `#0f62fe`; set it to the shared `#2563eb` set (see shared §7 Look).
+- The Settings button sits after the command palette button; move it before the file password field.
+- Toasts appear at the bottom and stack up to 3; the shared rule is one pill at the top center. The update toast sits at `bottom-24` to clear them; move it to `bottom-6` when the toasts move.
+- Fonts: `--font-sans` differs from the shared stack.
+- Dialogs use the product's own modal code, not `appAlert()`, `appConfirm()` and `appPrompt()`.
+- Tailwind is 4.2.4 through a git-ignored `./tailwindcss-macos-arm64` binary; move to 4.3.1 with the pinned-binary `build.sh` from grind-qrcoder.
+- `i18n.js` differs from grind-cash's copy (default language `ja` vs `en`); make the two identical.
+- Japanese outside `lang/`: a console message in `main.js`, fallback text in `index.html`, comments in `input.css` and `.gitignore`.
+- `input.css` has `@source "../footer.js"`, a file outside this folder; remove it if unused.
