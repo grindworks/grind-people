@@ -20,7 +20,7 @@
 
 - Look, top bar, shortcuts, toasts, dialogs, wording and languages follow shared §7 UI. Do not restate them here; add only what differs.
 - Product-specific top-bar controls: the Settings button, placed before the file password field. The Settings dialog must not hold a theme choice (light only).
-- UI languages: English and Japanese, in `lang/`, applied by `i18n.js`. This is the reference implementation; the other apps move to it.
+- UI languages: English and Japanese, in `lang/`, applied by `i18n.js` (shared with grind-cash, the other app with several languages).
 
 ## 4. Known gaps against shared §7
 
