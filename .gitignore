@@ -10,7 +10,6 @@ tailwindcss-macos-arm64
 # 開発用スクリプト・ファイル
 export_ai.md
 export_ai.sh
-build.sh
 
 # OS generating files
 .DS_Store

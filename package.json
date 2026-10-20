@@ -1,7 +1,7 @@
 {
   "name": "grindpeople",
   "scripts": {
-    "build:css": "./tailwindcss-macos-arm64 -i ./input.css -o ./styles.css --minify",
+    "build:css": "./build.sh",
     "watch:css": "./tailwindcss-macos-arm64 -i ./input.css -o ./styles.css --watch"
   }
 }
