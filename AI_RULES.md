@@ -24,5 +24,5 @@
 
 ## 4. Known gaps against shared §7
 
-- `sw.js` has an inline offline fallback page with Japanese text.
-- Japanese outside `lang/`: a console message in `main.js`, fallback text in `index.html`, comments in `input.css` and `.gitignore`.
+- `sw.js` has an inline offline fallback page with Japanese text. It stays: it is shown only when the app cannot load.
+- Japanese fallback text in `index.html` (shown only before `lang/` loads) and Japanese comments in `main.js` stay: the shared rule does not require rewriting existing comments.

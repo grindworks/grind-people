@@ -1075,7 +1075,7 @@ function migrateDatabase() {
         if (insertStmt) insertStmt.free();
       }
     } catch (e) {
-      console.warn("マイグレーションの実行をスキップしました", e);
+      console.warn("Skipped running the migration", e);
     }
   } catch (e) {
     console.error("Migration error:", e);
@@ -1635,7 +1635,7 @@ async function initSQLite() {
           '<span class="text-orange-400">↺</span>',
         );
       } catch (dbError) {
-        console.error("ドラフトの復元に失敗しました。", dbError);
+        console.error("Failed to restore the draft.", dbError);
         await appAlert(window._t("error.draft_corrupted"), window._t("error.fatal_title"));
         await clearDraft();
         db = new SQL.Database();
@@ -3270,7 +3270,7 @@ async function sortBlockByDate(blockId) {
     showToast(window._t("toast.sorted"), "🧹");
   } catch (e) {
     db.run("ROLLBACK;");
-    console.error("並べ替えに失敗しました", e);
+    console.error("Failed to reorder", e);
   } finally {
     if (updateStmt) updateStmt.free();
   }
@@ -4538,7 +4538,7 @@ async function executeCSVImport() {
         "SELECT role FROM records WHERE parent_id IS NOT NULL AND memo = ? AND role IS NOT NULL AND role != '' ORDER BY id DESC LIMIT 1",
       );
     } catch (e) {
-      console.warn("役職サジェストSQLの準備に失敗しました", e);
+      console.warn("Failed to prepare the position suggestion SQL", e);
     }
 
     try {
@@ -4549,7 +4549,7 @@ async function executeCSVImport() {
         "SELECT 1 FROM records WHERE memo = ? AND IFNULL(contact_info, '') = IFNULL(?, '') LIMIT 1",
       );
     } catch (e) {
-      console.warn("インポート用SQLの準備に失敗しました", e);
+      console.warn("Failed to prepare the import SQL", e);
     }
 
     for (let i = startIndex; i < endIndex; i++) {
@@ -4761,7 +4761,7 @@ function copyAIPrompt() {
       showToast(window._t("toast.prompt_copied"), "📋");
     })
     .catch((err) => {
-      console.error("コピーに失敗しました", err);
+      console.error("Failed to copy", err);
     });
 }
 
@@ -4801,7 +4801,7 @@ function copyAsMarkdown() {
     .then(() => {
       showToast(window._t("toast.md_copied"), "📋");
     })
-    .catch((err) => console.error("コピーに失敗しました", err));
+    .catch((err) => console.error("Failed to copy", err));
 }
 
 // --- Contact Detail Edit Modal ---

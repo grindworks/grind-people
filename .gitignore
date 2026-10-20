@@ -1,13 +1,13 @@
-# 個人データ・エクスポートファイル
+# Personal data and export files
 *.people
 *.sqlite
 *.csv
 *.vcf
 
-# Tailwind Standalone CLI バイナリ
+# Tailwind standalone CLI binary
 tailwindcss-macos-arm64
 
-# 開発用スクリプト・ファイル
+# Development scripts and files
 export_ai.md
 export_ai.sh
 
