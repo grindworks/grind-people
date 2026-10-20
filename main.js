@@ -175,57 +175,6 @@ function toggleMainUI(disabled) {
   });
 }
 
-// --- Dark Mode Management ---
-function initDarkMode() {
-  const saved = safeLocalStorageGet("theme");
-  if (
-    saved === "dark" ||
-    (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches)
-  ) {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-  document.documentElement.style.colorScheme =
-    document.documentElement.classList.contains("dark") ? "dark" : "light";
-  updateMetaThemeColor(document.documentElement.classList.contains("dark"));
-}
-
-function toggleDarkMode() {
-  if (document.startViewTransition) {
-    document.startViewTransition(() => executeThemeToggle());
-  } else {
-    executeThemeToggle();
-  }
-}
-
-function executeThemeToggle() {
-  const isDark = document.documentElement.classList.toggle("dark");
-  document.documentElement.style.colorScheme = isDark ? "dark" : "light";
-  safeLocalStorageSet("theme", isDark ? "dark" : "light");
-  updateMetaThemeColor(isDark);
-}
-
-function updateMetaThemeColor(isDark) {
-  const metaTheme = document.getElementById("meta-theme-color");
-  if (metaTheme) {
-    metaTheme.setAttribute("content", isDark ? "#0f172a" : "#f8fafc");
-  }
-}
-
-// Apply dark mode immediately on page load (Prevent FOUC)
-initDarkMode();
-
-window
-  .matchMedia("(prefers-color-scheme: dark)")
-  .addEventListener("change", (e) => {
-    if (!safeLocalStorageGet("theme")) {
-      const isDark = e.matches;
-      document.documentElement.classList.toggle("dark", isDark);
-      updateMetaThemeColor(isDark);
-    }
-  });
-
 // --- Settings Dropdown Menu Management ---
 window.toggleSettingsMenu = function (event) {
   if (event) event.stopPropagation();
@@ -1747,7 +1696,7 @@ async function initSQLite() {
     if (errorScreen) {
       const errorMsgEl = errorScreen.querySelector("p");
       if (errorMsgEl)
-        errorMsgEl.innerHTML = window._t("error.sqlite_fatal", `<span class="text-xs text-red-500 font-mono bg-red-50 dark:bg-red-900/30 p-2 rounded inline-block text-left overflow-auto max-h-32 my-2 border border-red-200 dark:border-red-800">${escapeHtml(err.message || err.toString())}</span>`);
+        errorMsgEl.innerHTML = window._t("error.sqlite_fatal", `<span class="text-xs text-red-500 font-mono bg-red-50 p-2 rounded inline-block text-left overflow-auto max-h-32 my-2 border border-red-200">${escapeHtml(err.message || err.toString())}</span>`);
       errorScreen.classList.remove("hidden");
       errorScreen.classList.add("flex");
     }
@@ -2002,15 +1951,12 @@ function autoSuggestRole(memoInput) {
         roleInput.classList.add(
           "!bg-purple-100",
           "!text-purple-700",
-          "dark:!bg-purple-900/30",
-          "dark:!text-purple-300",
           "transition-colors",
         );
         setTimeout(
           () =>
             roleInput.classList.remove(
               "!bg-purple-100", "!text-purple-700",
-              "dark:!bg-purple-900/30", "dark:!text-purple-300"
             ),
           1000,
         );
@@ -2436,8 +2382,8 @@ function updateCategoryFiltersUI(tagTotals) {
   allBtn.textContent = window._t("filter.all");
   allBtn.className =
     currentActiveTag === null
-      ? "snap-start px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm shrink-0 bg-slate-800 text-white border border-slate-800 dark:bg-white dark:text-slate-900"
-      : "snap-start px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm shrink-0 bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 dark:bg-dark-surface dark:text-slate-300 dark:border-dark-border dark:hover:bg-dark-surface-hover";
+      ? "snap-start px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm shrink-0 bg-slate-800 text-white border border-slate-800"
+      : "snap-start px-4 py-1.5 rounded-full text-xs font-bold transition-colors shadow-sm shrink-0 bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200";
   allBtn.onclick = () => setCategoryFilter(null);
   container.appendChild(allBtn);
 
@@ -2447,9 +2393,9 @@ function updateCategoryFiltersUI(tagTotals) {
     .forEach(([tag, data]) => {
       const isSelected = currentActiveTag === tag;
       const btn = document.createElement("button");
-      btn.className = `snap-start px-3 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${isSelected ? "bg-primary text-white border border-primary shadow-md scale-105" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 dark:bg-dark-surface dark:text-slate-300 dark:border-dark-border dark:hover:bg-dark-surface-hover"}`;
+      btn.className = `snap-start px-3 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${isSelected ? "bg-primary text-white border border-primary shadow-md scale-105" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`;
 
-      btn.innerHTML = `<span class="truncate max-w-[120px] sm:max-w-[200px]">${escapeHtml(tag)}</span> <span class="${isSelected ? "text-white/80" : "text-slate-400 dark:text-slate-500"} font-normal text-[10px] ml-1">${data.count}</span>`;
+      btn.innerHTML = `<span class="truncate max-w-[120px] sm:max-w-[200px]">${escapeHtml(tag)}</span> <span class="${isSelected ? "text-white/80" : "text-slate-400"} font-normal text-[10px] ml-1">${data.count}</span>`;
       btn.onclick = () => setCategoryFilter(tag);
       container.appendChild(btn);
     });
@@ -2598,7 +2544,7 @@ function renderData(focusBlockId = null) {
       const a = document.createElement("a");
       a.href = `#block-${block.id}`;
       a.className =
-        "toc-item block px-2 py-1 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-dark-surface-hover rounded truncate transition-colors text-slate-500 dark:text-slate-400 cursor-pointer text-sm font-medium";
+        "toc-item block px-2 py-1 hover:text-slate-900 hover:bg-slate-100 rounded truncate transition-colors text-slate-500 cursor-pointer text-sm font-medium";
       a.textContent = block.memo || window._t("label.unnamed");
       a.title = block.memo || window._t("label.unnamed");
       a.onclick = (e) => {
@@ -2681,13 +2627,13 @@ function renderData(focusBlockId = null) {
     // ✅ Automatically detect File System Access API support
     const isFsaSupported = "showSaveFilePicker" in window;
     const browserNoticeHtml = isFsaSupported
-      ? `<div class="mt-8 flex flex-col items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+      ? `<div class="mt-8 flex flex-col items-center gap-1 text-[11px] text-slate-400">
            <p class="font-bold flex items-center gap-1">
              <svg class="w-3.5 h-3.5"><use href="#icon-sparkles"></use></svg> ${window._t("empty.browser_rec_title")}
            </p>
            <p class="opacity-80">${window._t("empty.browser_rec_desc")}</p>
          </div>`
-      : `<div class="mt-8 flex flex-col items-center gap-1.5 text-[11px] text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-4 py-2.5 rounded-xl border border-orange-200 dark:border-orange-800/50">
+      : `<div class="mt-8 flex flex-col items-center gap-1.5 text-[11px] text-orange-600 bg-orange-50 px-4 py-2.5 rounded-xl border border-orange-200">
            <p class="font-bold flex items-center gap-1 text-xs">
              ${window._t("empty.browser_warn_title")}
            </p>
@@ -2695,18 +2641,18 @@ function renderData(focusBlockId = null) {
          </div>`;
 
     container.innerHTML = `
-      <div id="empty-state" class="flex flex-col items-center justify-center py-24 sm:py-32 text-center relative overflow-hidden rounded-3xl border border-slate-200/50 dark:border-dark-border/50 bg-slate-50/50 dark:bg-dark-surface/30 backdrop-blur-xl shadow-inner transition-all animate-fade-in group">
-        <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] opacity-50 dark:invert"></div>
+      <div id="empty-state" class="flex flex-col items-center justify-center py-24 sm:py-32 text-center relative overflow-hidden rounded-3xl border border-slate-200/50 bg-slate-50/50 backdrop-blur-xl shadow-inner transition-all animate-fade-in group">
+        <div class="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAiLz4KPHBhdGggZD0iTTAgMEw4IDhaTTAgOEw4IDBaIiBzdHJva2U9IiMzMzMiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz4KPC9zdmc+')] opacity-50"></div>
         <div class="relative z-10 flex flex-col items-center px-4">
-          <div class="w-24 h-24 mb-6 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center ring-8 ring-primary/5 dark:ring-primary/10 animate-float group-hover:scale-110 transition-transform duration-500">
+          <div class="w-24 h-24 mb-6 rounded-full bg-primary/10 flex items-center justify-center ring-8 ring-primary/5 animate-float group-hover:scale-110 transition-transform duration-500">
             <svg class="w-10 h-10 text-primary drop-shadow-md"><use href="${isFilterActive ? "#icon-search" : "#icon-users"}"></use></svg>
           </div>
-          <h2 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-2">${isFilterActive ? window._t("empty.title_filtered") : window._t("empty.title_welcome")}</h2>
-          <p class="text-slate-500 dark:text-slate-400 max-w-sm leading-relaxed mb-8">${isFilterActive ? window._t("empty.desc_filtered") : window._t("empty.desc_welcome")}</p>
+          <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight mb-2">${isFilterActive ? window._t("empty.title_filtered") : window._t("empty.title_welcome")}</h2>
+          <p class="text-slate-500 max-w-sm leading-relaxed mb-8">${isFilterActive ? window._t("empty.desc_filtered") : window._t("empty.desc_welcome")}</p>
           ${
             !isFilterActive
               ? `
-          <button onclick="document.getElementById('new-block-memo').focus()" class="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-2.5 rounded-full text-sm font-bold shadow-xl shadow-slate-900/20 dark:shadow-white/10 hover:shadow-2xl hover:-translate-y-0.5 transition-all active:scale-95 flex items-center gap-2">
+          <button onclick="document.getElementById('new-block-memo').focus()" class="bg-slate-900 text-white px-6 py-2.5 rounded-full text-sm font-bold shadow-xl shadow-slate-900/20 hover:shadow-2xl hover:-translate-y-0.5 transition-all active:scale-95 flex items-center gap-2">
             <span class="text-xl leading-none font-light">+</span> ${window._t("empty.btn_new")}
           </button>
           ${browserNoticeHtml}
@@ -2777,11 +2723,11 @@ function renderData(focusBlockId = null) {
       .forEach(([tag, data]) => {
         const a = document.createElement("div");
         a.className =
-          "group px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-dark-surface-hover rounded transition-colors flex justify-between items-center";
+          "group px-2 py-1.5 hover:bg-slate-100 rounded transition-colors flex justify-between items-center";
         a.innerHTML = `
           <div class="flex items-center gap-2 overflow-hidden flex-1 cursor-pointer">
-            <span class="text-sm font-medium text-slate-600 dark:text-slate-300 group-hover:text-primary transition-colors truncate" title="${window._t("title.click_list")}">${escapeHtml(tag)}</span>
-            <span class="text-[10px] tabular-nums tracking-tight font-bold text-slate-400 bg-slate-100 dark:bg-dark-bg px-1.5 py-0.5 rounded group-hover:bg-white dark:group-hover:bg-dark-surface-hover transition-colors">${data.count} ${window._t("unit.people")}</span>
+            <span class="text-sm font-medium text-slate-600 group-hover:text-primary transition-colors truncate" title="${window._t("title.click_list")}">${escapeHtml(tag)}</span>
+            <span class="text-[10px] tabular-nums tracking-tight font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded group-hover:bg-white transition-colors">${data.count} ${window._t("unit.people")}</span>
           </div>
           <button class="export-btn opacity-0 group-hover:opacity-100 text-slate-400 hover:text-primary transition-opacity ml-2 shrink-0 p-1" title="${window._t("title.export_vcard")}">
             <svg class="w-4 h-4"><use href="#icon-download"></use></svg>
@@ -2817,7 +2763,7 @@ function renderData(focusBlockId = null) {
     mobileTagContainer = document.createElement("div");
     mobileTagContainer.id = "mobile-tag-container";
     mobileTagContainer.className =
-      "xl:hidden mt-12 mb-8 bg-white dark:bg-dark-surface p-6 rounded-xl border border-slate-200 dark:border-dark-border shadow-sm";
+      "xl:hidden mt-12 mb-8 bg-white p-6 rounded-xl border border-slate-200 shadow-sm";
     mobileTagContainer.innerHTML = `<h3 class="text-xs font-bold text-slate-400 mb-4 tracking-widest flex items-center gap-1"><svg class="w-4 h-4"><use href="#icon-folder"></use></svg> PROJECTS (TAGS)</h3>`;
 
     const grid = document.createElement("div");
@@ -2829,7 +2775,7 @@ function renderData(focusBlockId = null) {
       .forEach(([tag, data]) => {
         const btn = document.createElement("div");
         btn.className =
-          "text-left p-3 rounded-lg bg-slate-50 dark:bg-dark-bg hover:bg-slate-100 dark:hover:bg-dark-surface-hover border border-slate-100 dark:border-dark-border transition-colors flex flex-col gap-1 relative group cursor-pointer";
+          "text-left p-3 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-100 transition-colors flex flex-col gap-1 relative group cursor-pointer";
         btn.innerHTML = `
           <span class="text-sm font-bold text-slate-700 truncate pr-6">${escapeHtml(tag)}</span>
           <span class="text-xs tabular-nums tracking-tight text-slate-500">${data.count} ${window._t("unit.people")}</span>
@@ -2888,14 +2834,11 @@ function renderData(focusBlockId = null) {
         document.querySelectorAll(".toc-item.text-primary").forEach((el) => {
           el.classList.remove(
             "text-primary",
-            "dark:text-blue-400",
             "bg-primary-50",
-            "dark:bg-primary/20",
             "font-bold",
           );
           el.classList.add(
             "text-slate-500",
-            "dark:text-slate-400",
             "font-medium",
           );
         });
@@ -2905,14 +2848,11 @@ function renderData(focusBlockId = null) {
         if (activeToc) {
           activeToc.classList.remove(
             "text-slate-500",
-            "dark:text-slate-400",
             "font-medium",
           );
           activeToc.classList.add(
             "text-primary",
-            "dark:text-blue-400",
             "bg-primary-50",
-            "dark:bg-primary/20",
             "font-bold",
           );
           const tocContainer = document.getElementById("toc-container");
@@ -2963,24 +2903,23 @@ function updateOrCreateBlockElement(block, existingEl = null) {
     const avatarHtml = `<div class="w-8 h-8 rounded-full overflow-hidden shrink-0 mr-3 shadow-sm border border-white/20 hidden sm:block">${avatarSvg}</div>`;
     const roleStr = item.role || "";
 
-    // ★ Role design made dark-mode compatible and enhanced contrast for better visibility in light mode
     let roleDisp = `<input type="text" data-id="${item.id}" data-field="role" list="role-suggestions" value="${escapeHtml(roleStr)}" placeholder="${escapeHtml(window._t("placeholder.role"))}" spellcheck="false" autocomplete="off" 
 onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 'false'; if(typeof this.showPicker === 'function') this.showPicker();" 
 oninput="setDirty(true); this.dataset.cleared = (this.value === '') ? 'true' : 'false';" 
 onkeydown="if(event.key==='Backspace' || event.key==='Delete') this.dataset.cleared='true'; if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'memo\\']'));}" 
 onblur="if(this.value === '' && this.dataset.cleared !== 'true') this.value = this.dataset.old; updateRecord(${item.id}, 'role', this.value, this);" 
-class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary dark:focus:border-primary focus:bg-white dark:focus:bg-dark-bg cursor-text transition-colors hover:bg-slate-200 dark:hover:bg-dark-surface-hover w-24 sm:w-32 shrink-0 text-center placeholder-slate-400 dark:placeholder-slate-500">`;
+class="text-base sm:text-xs text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded mr-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary focus:bg-white cursor-text transition-colors hover:bg-slate-200 w-24 sm:w-32 shrink-0 text-center placeholder-slate-400">`;
 
     itemsHtml += `
-      <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 dark:border-dark-border/30 group/item hover:bg-slate-50/80 dark:hover:bg-dark-surface-hover transition-colors">
+      <div class="flex justify-between items-center px-4 sm:px-8 py-3.5 border-b border-slate-50 group/item hover:bg-slate-50/80 transition-colors">
         <div class="flex items-center flex-1 min-w-0">
           ${avatarHtml}
           ${roleDisp}
-            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 dark:text-slate-200 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.enter_name'))}">${escapeHtml(item.memo)}</span>
+            <span data-id="${item.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();window.focusAndSelectAll(this.closest('.group/item').querySelector('[data-field=\\'contact_info\\']'));}" onblur="updateRecord(${item.id}, 'memo', this.innerText, this)" class="select-text text-slate-700 font-medium block min-w-0 flex-1 truncate outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors empty:inline-block empty:min-w-16 empty:bg-slate-100 empty:before:text-slate-400 empty:before:text-xs empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.enter_name'))}">${escapeHtml(item.memo)}</span>
         </div>
         <div class="flex items-center space-x-2 sm:space-x-4 ml-2 sm:ml-auto shrink-0 min-w-0">
           <!-- ★ This is the contact display field for existing members -->
-          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" inputmode="email" autocapitalize="off" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-base sm:text-sm tracking-tight text-slate-600 dark:text-slate-400 outline-none focus:bg-blue-50 dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 dark:empty:bg-dark-bg empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.tel_email_short'))}">${escapeHtml(item.contact_info || "")}</span>
+          <span data-id="${item.id}" data-field="contact_info" contenteditable="true" inputmode="email" autocapitalize="off" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" onblur="updateRecord(${item.id}, 'contact_info', this.innerText, this)" class="select-text font-mono text-base sm:text-sm tracking-tight text-slate-600 outline-none focus:bg-blue-50 focus:ring-2 focus:ring-blue-200 px-1 rounded cursor-text transition-colors block truncate max-w-[120px] sm:max-w-[220px] empty:inline-block empty:min-w-20 empty:bg-slate-100 empty:before:text-slate-300 empty:before:text-xs empty:before:font-sans empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.tel_email_short'))}">${escapeHtml(item.contact_info || "")}</span>
           <div class="flex items-center space-x-1 md:opacity-0 md:group-hover/item:opacity-100 focus-within:opacity-100 transition-opacity">
             <!-- ★ Expanded touch target (p-2) -->
             <button tabindex="-1" onclick="shareContact(${item.id})" aria-label="${window._t("aria.share")}" class="text-slate-300 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 rounded p-2 transition-colors" title="${window._t("title.share_vcard")}">
@@ -3007,38 +2946,38 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
   const iconRotation = isCollapsed ? "rotate(-90deg)" : "rotate(0deg)";
 
   blockEl.innerHTML = `
-    <div class="bg-white dark:bg-dark-surface rounded-xl shadow-sm border border-slate-200 dark:border-dark-border overflow-hidden transition-all hover:border-slate-300 dark:hover:border-dark-border-hover hover:shadow-md">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all hover:border-slate-300 hover:shadow-md">
 
     <!-- ★ Removed sticky-related classes that caused layout breakage, restoring the original safe flow -->
-    <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 dark:bg-dark-surface px-4 sm:px-8 py-5 border-b border-slate-100 dark:border-dark-border flex justify-between items-start transition-colors cursor-pointer select-none group/header hover:bg-slate-100 dark:hover:bg-dark-surface-hover">
+    <div onclick="toggleBlock(${block.id})" class="bg-slate-50/50 px-4 sm:px-8 py-5 border-b border-slate-100 flex justify-between items-start transition-colors cursor-pointer select-none group/header hover:bg-slate-100">
 
       <div class="flex flex-col overflow-hidden w-full">
         <div class="flex items-center gap-3">
           <svg id="block-icon-${block.id}" class="w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0" style="transform: ${iconRotation};"><use href="#icon-chevron-down"></use></svg>
           <!-- ★ Prevent iOS focus bug using select-text -->
-          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 dark:text-white tracking-tight outline-none focus:bg-white dark:focus:bg-dark-surface-hover focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 dark:empty:bg-dark-bg empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.group_name'))}">${escapeHtml(block.memo)}</h2>
+          <h2 data-id="${block.id}" data-field="memo" contenteditable="true" spellcheck="false" oninput="if(this.innerText.trim() === '' || this.innerHTML === '<br>') this.innerHTML = ''; setDirty(true);" onpaste="handlePlainTextPaste(event)" ondrop="event.preventDefault();" onclick="event.stopPropagation()" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault(); const form = document.getElementById('block-form-${block.id}'); if(form){ window.focusAndSelectAll(form.querySelector('.item-memo')); } else { this.blur(); } }" onblur="updateRecord(${block.id}, 'memo', this.innerText, this)" class="select-text text-xl font-extrabold text-slate-900 tracking-tight outline-none focus:bg-white focus:ring-2 focus:ring-primary/30 px-1 rounded cursor-text truncate transition-colors empty:inline-block empty:min-w-24 empty:bg-slate-200 empty:before:text-slate-400 empty:before:text-sm empty:before:font-normal empty:before:pointer-events-none empty:focus:before:opacity-50" data-empty-text="✎ ${escapeHtml(window._t('placeholder.group_name'))}">${escapeHtml(block.memo)}</h2>
         </div>
 
         <!-- ★ Dedicated tag input field -->
         <div class="flex items-center gap-1.5 mt-1.5 ml-8 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity" onclick="event.stopPropagation()">
           <svg class="w-3.5 h-3.5 text-slate-400 shrink-0"><use href="#icon-tag"></use></svg>
-          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${escapeHtml(window._t("placeholder.add_tag"))}" onclick="if(typeof this.showPicker === 'function') this.showPicker();" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 dark:text-slate-400 placeholder-slate-300 w-full outline-none font-medium">
+          <input type="text" data-id="${block.id}" data-field="tags" list="tag-suggestions" spellcheck="false" autocomplete="off" value="${escapeHtml(block.tags || "")}" placeholder="${escapeHtml(window._t("placeholder.add_tag"))}" onclick="if(typeof this.showPicker === 'function') this.showPicker();" oninput="setDirty(true)" onblur="updateRecord(${block.id}, 'tags', this.value, this)" onkeydown="if(event.key==='Enter' && !event.isComposing){event.preventDefault();this.blur();}" class="bg-transparent border-0 focus:ring-0 p-0 text-base sm:text-xs text-slate-500 placeholder-slate-300 w-full outline-none font-medium">
         </div>
       </div>
       <div class="flex items-center shrink-0">
-        <div class="font-bold tabular-nums tracking-tight text-slate-900 dark:text-white text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">${window._t("unit.people")}</span></div>
-        <div class="flex items-center pl-2 border-l border-slate-200/50 dark:border-dark-border/50 ml-4 shrink-0 h-10 sm:h-8 gap-1">
+        <div class="font-bold tabular-nums tracking-tight text-slate-900 text-lg"><span id="block-total-${block.id}">${blockTotal}</span> <span class="text-slate-400 text-sm font-sans">${window._t("unit.people")}</span></div>
+        <div class="flex items-center pl-2 border-l border-slate-200/50 ml-4 shrink-0 h-10 sm:h-8 gap-1">
           <!-- ★ Safely integrated Template Save button here without overflowing -->
-          <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="${window._t("aria.save_tpl")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.save_tpl")}">
+          <button onclick="event.stopPropagation(); saveTemplate(${block.id})" aria-label="${window._t("aria.save_tpl")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 hover:bg-primary/10 hover:text-primary hover:shadow-[0_0_10px_rgba(15,98,254,0.2)] md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.save_tpl")}">
             <svg class="w-5 h-5"><use href="#icon-squares-plus"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="${window._t("aria.sort")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-dark-surface-hover hover:text-slate-600 dark:hover:text-slate-300 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="${window._t("title.sort_oldest")}">
+          <button onclick="event.stopPropagation(); sortBlockByDate(${block.id})" aria-label="${window._t("aria.sort")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 hover:bg-slate-200 hover:text-slate-600 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all cursor-pointer" title="${window._t("title.sort_oldest")}">
             <svg class="w-4 h-4"><use href="#icon-sort"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); shareBlock(${block.id})" aria-label="${window._t("aria.share_group")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-primary/10 hover:text-primary md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.share_group")}">
+          <button onclick="event.stopPropagation(); shareBlock(${block.id})" aria-label="${window._t("aria.share_group")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 hover:bg-primary/10 hover:text-primary md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" title="${window._t("title.share_group")}">
             <svg class="w-5 h-5"><use href="#icon-share"></use></svg>
           </button>
-          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="${window._t("aria.delete_block")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="${window._t("title.delete_block")}">
+          <button onclick="event.stopPropagation(); deleteRecord(${block.id})" aria-label="${window._t("aria.delete_block")}" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover/block:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all cursor-pointer" title="${window._t("title.delete_block")}">
             <svg class="w-5 h-5"><use href="#icon-trash"></use></svg>
           </button>
         </div>
@@ -3046,8 +2985,8 @@ class="text-base sm:text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark
     </div>
     <div id="block-body-${block.id}" class="transition-all duration-300 ease-in-out overflow-hidden" style="max-height: ${maxH}; opacity: ${op};">
       <div class="">${itemsHtml}</div>
-      <div class="px-4 sm:px-8 py-4 bg-white dark:bg-dark-surface transition-colors">
-      <form id="block-form-${block.id}" class="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 px-3 py-2 -mx-3 rounded-md transition-all focus-within:bg-slate-50 dark:focus-within:bg-dark-surface-hover focus-within:ring-1 focus-within:ring-slate-200 dark:focus-within:ring-dark-border" onsubmit="event.preventDefault(); addItem(
+      <div class="px-4 sm:px-8 py-4 bg-white transition-colors">
+      <form id="block-form-${block.id}" class="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 px-3 py-2 -mx-3 rounded-md transition-all focus-within:bg-slate-50 focus-within:ring-1 focus-within:ring-slate-200" onsubmit="event.preventDefault(); addItem(
         ${block.id},
         this.querySelector('.item-memo').value,
         this.querySelector('.item-contact').value,
@@ -3063,16 +3002,16 @@ onfocus="this.dataset.old = this.value; this.value = ''; this.dataset.cleared = 
 oninput="setDirty(true); this.dataset.cleared = (this.value === '') ? 'true' : 'false';" 
 onkeydown="if(event.key==='Backspace' || event.key==='Delete') this.dataset.cleared='true'; if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-memo').focus();}" 
 onblur="if(this.value === '' && this.dataset.cleared !== 'true') this.value = this.dataset.old;" 
-class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 dark:text-slate-300 placeholder-slate-400 w-24 sm:w-32 shrink-0 text-base sm:text-sm outline-none text-center min-w-0">
+class="item-role bg-transparent border-0 focus:ring-0 p-0 text-slate-600 placeholder-slate-400 w-24 sm:w-32 shrink-0 text-base sm:text-sm outline-none text-center min-w-0">
         </div>
 
-        <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 dark:border-dark-border/50 sm:pl-3 relative group/paste">
+        <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto sm:flex-1 pl-6 mt-2 sm:mt-0 min-w-0 border-l border-slate-200/50 sm:pl-3 relative group/paste">
           <!-- ★ Restrict onfocus scrolling to PC to prevent Jank -->
-          <input type="text" placeholder="${escapeHtml(window._t("placeholder.add_name"))}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onclick="if(typeof this.showPicker === 'function') this.showPicker();" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 dark:text-white placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
+          <input type="text" placeholder="${escapeHtml(window._t("placeholder.add_name"))}" list="memo-suggestions" spellcheck="false" autocomplete="off" onpaste="handleSmartPaste(event)" oninput="setDirty(true)" onclick="if(typeof this.showPicker === 'function') this.showPicker();" onblur="autoSuggestRole(this)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.key==='Enter'){ if(event.isComposing) { return; } event.preventDefault();this.closest('form').querySelector('.item-contact').focus();}" class="item-memo bg-transparent border-0 focus:ring-0 p-0 text-slate-900 placeholder-slate-400 flex-1 text-base sm:text-sm font-medium outline-none min-w-0">
           <svg class="w-4 h-4 text-primary absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover/paste:opacity-30 pointer-events-none transition-opacity" title="${window._t("title.smart_paste_help")}"><use href="#icon-sparkles"></use></svg>
 
           <!-- ★ This is the missing new contact input field (item-contact)! -->
-          <input type="text" inputmode="email" placeholder="${escapeHtml(window._t("placeholder.tel_email"))}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 dark:text-slate-400 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
+          <input type="text" inputmode="email" placeholder="${escapeHtml(window._t("placeholder.tel_email"))}" spellcheck="false" autocomplete="off" class="item-contact bg-transparent border-0 focus:ring-0 p-0 text-right font-mono text-slate-600 placeholder-slate-400 w-32 sm:w-48 shrink-0 text-base sm:text-sm outline-none min-w-0" oninput="setDirty(true)" onfocus="if(window.matchMedia('(min-width: 769px)').matches) { setTimeout(() => this.closest('form').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300); }" onkeydown="if(event.isComposing){ return; } if((event.key==='Enter') || (event.key==='Tab' && !event.shiftKey)){ const form = this.closest('form'); if(form.querySelector('.item-memo').value.trim() || this.value.trim()){ event.preventDefault(); form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true})); } }">
         </div>
         <button type="submit" class="hidden">${window._t("btn.add")}</button>
       </form>
@@ -3537,7 +3476,7 @@ async function savePeopleFile(isSaveAs = false) {
           const originalUse = `<use href="#icon-save"></use>`;
           iconSvg.innerHTML = `<use href="#icon-check"></use>`;
           iconSvg.classList.add("text-green-500", "scale-125", "drop-shadow-[0_0_8px_rgba(34,197,94,0.8)]");
-          saveBtn.classList.add("ring-2", "ring-green-500/40", "bg-green-50", "dark:bg-green-900/20", "shadow-[0_0_15px_rgba(34,197,94,0.3)]");
+          saveBtn.classList.add("ring-2", "ring-green-500/40", "bg-green-50", "shadow-[0_0_15px_rgba(34,197,94,0.3)]");
 
           setTimeout(() => {
             iconSvg.innerHTML = originalUse;
@@ -3546,7 +3485,6 @@ async function savePeopleFile(isSaveAs = false) {
               "ring-2",
               "ring-green-500/40",
               "bg-green-50",
-              "dark:bg-green-900/20",
               "shadow-[0_0_15px_rgba(34,197,94,0.3)]"
             );
             iconSvg.removeAttribute("data-animating");
@@ -5140,7 +5078,7 @@ function addDetailPhoneRow(value = "", type = "mobile", autoFocus = true) {
     ? type
     : "other";
   row.innerHTML = `
-    <select class="detail-phone-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-28 sm:w-24 shrink-0">
+    <select class="detail-phone-type bg-slate-50 border border-slate-200 text-slate-700 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-28 sm:w-24 shrink-0">
       <option value="mobile" ${safeType === "mobile" ? "selected" : ""}>${window._t("opt.mobile")}</option>
       <option value="work" ${safeType === "work" ? "selected" : ""}>${window._t("opt.work")}</option>
       <option value="home" ${safeType === "home" ? "selected" : ""}>${window._t("opt.home")}</option>
@@ -5148,7 +5086,7 @@ function addDetailPhoneRow(value = "", type = "mobile", autoFocus = true) {
       <option value="fax_home" ${safeType === "fax_home" ? "selected" : ""}>${window._t("opt.fax_home")}</option>
       <option value="other" ${safeType === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="tel" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
+    <input type="tel" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.phone_sample")}" class="detail-phone-value flex-1 bg-slate-50 border border-slate-200 text-slate-900 rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -5167,12 +5105,12 @@ function addDetailEmailRow(value = "", type = "work", autoFocus = true) {
   const row = document.createElement("div");
   row.className = "flex items-center gap-2";
   row.innerHTML = `
-    <select class="detail-email-type bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-700 dark:text-slate-300 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-24 sm:w-20 shrink-0">
+    <select class="detail-email-type bg-slate-50 border border-slate-200 text-slate-700 rounded px-2 py-1.5 text-base sm:text-xs outline-none w-24 sm:w-20 shrink-0">
       <option value="work" ${type === "work" ? "selected" : ""}>${window._t("opt.work2")}</option>
       <option value="home" ${type === "home" ? "selected" : ""}>${window._t("opt.personal")}</option>
       <option value="other" ${type === "other" ? "selected" : ""}>${window._t("opt.other")}</option>
     </select>
-    <input type="email" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border text-slate-900 dark:text-white rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
+    <input type="email" autocomplete="off" value="${escapeHtml(value)}" placeholder="${window._t("placeholder.email_sample")}" class="detail-email-value flex-1 bg-slate-50 border border-slate-200 text-slate-900 rounded px-2.5 py-1.5 text-base sm:text-sm outline-none focus:border-primary">
     <button type="button" onclick="this.parentElement.remove()" class="text-slate-300 hover:text-red-500 text-lg leading-none cursor-pointer">&times;</button>
   `;
   container.appendChild(row);
@@ -5698,11 +5636,11 @@ function getFilteredCommands(query) {
 
           if (contact && contact.includes('@')) {
             badgeText = "Email";
-            badgeClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
+            badgeClass = "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
             iconHtml = '<svg class="w-5 h-5 text-emerald-500"><use href="#icon-envelope"></use></svg>';
           } else if (contact && contact.trim() !== "") {
             badgeText = "Call";
-            badgeClass = "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20";
+            badgeClass = "bg-green-500/10 text-green-600 border-green-500/20";
             iconHtml = '<svg class="w-5 h-5 text-green-500"><use href="#icon-phone"></use></svg>';
           }
 
@@ -5710,7 +5648,7 @@ function getFilteredCommands(query) {
           contacts.push({
             id: `detail_${id}`,
             icon: iconHtml,
-            title: `<span class="text-slate-700 dark:text-slate-200 font-bold">${escapeHtml(safeName)}</span> <span class="text-xs text-slate-400 dark:text-slate-500 ml-2">(${escapeHtml(org)})</span>`,
+            title: `<span class="text-slate-700 font-bold">${escapeHtml(safeName)}</span> <span class="text-xs text-slate-400 ml-2">(${escapeHtml(org)})</span>`,
             badge: badgeText,
             badgeClass: badgeClass,
             keepOpen: false,
@@ -5770,14 +5708,14 @@ function renderCommandList(query = "") {
       if (!catTitle || catTitle.startsWith("cmd.section_")) catTitle = currentCategory.toUpperCase(); // Fallback
 
       const header = document.createElement("div");
-      header.className = "block px-3 py-1 mt-3 mb-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest border-b border-slate-200/50 dark:border-dark-border/50";
+      header.className = "block px-3 py-1 mt-3 mb-1 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200/50";
       header.textContent = catTitle;
       list.appendChild(header);
     }
 
     const div = document.createElement("div");
     const isSelected = i === selectedCommandIndex;
-    div.className = `command-item px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 dark:bg-primary/10 text-primary" : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white"}`;
+    div.className = `command-item px-4 py-3 my-1 flex justify-between items-center rounded-md cursor-pointer transition-colors ${isSelected ? "bg-primary-50 text-primary" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
 
     // If there is a search query, highlight matched parts (Ensuring HTML tags are not broken)
     let displayTitle = cmd.title;
@@ -5800,10 +5738,10 @@ function renderCommandList(query = "") {
     if (cmd.shortcut || cmd.badge) {
       innerHtml += `<div class="flex items-center gap-2 shrink-0 pl-2">`;
       if (cmd.badge) {
-        innerHtml += `<span class="text-[10px] font-bold px-2 py-0.5 rounded border ${cmd.badgeClass || 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-dark-surface dark:border-dark-border'}">${cmd.badge}</span>`;
+        innerHtml += `<span class="text-[10px] font-bold px-2 py-0.5 rounded border ${cmd.badgeClass || 'bg-slate-100 text-slate-500 border-slate-200'}">${cmd.badge}</span>`;
       }
       if (cmd.shortcut) {
-        innerHtml += `<kbd class="font-mono text-[10px] bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border px-1.5 py-0.5 rounded shadow-sm ${isSelected ? "text-primary border-primary/20 dark:border-primary/20" : "text-slate-400 dark:text-slate-500"}">${cmd.shortcut}</kbd>`;
+        innerHtml += `<kbd class="font-mono text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded shadow-sm ${isSelected ? "text-primary border-primary/20" : "text-slate-400"}">${cmd.shortcut}</kbd>`;
       }
       innerHtml += `</div>`;
     }
@@ -5822,10 +5760,10 @@ function renderCommandList(query = "") {
         selectedCommandIndex = i;
         // Deselect existing selection
         list.querySelectorAll('.command-item').forEach(child => {
-          child.className = child.className.replace("bg-primary-50 dark:bg-primary/10 text-primary", "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white");
+          child.className = child.className.replace("bg-primary-50 text-primary", "text-slate-600 hover:bg-slate-100 hover:text-slate-900");
         });
         // Set current hover element as selected
-        div.className = div.className.replace("text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-dark-surface-hover hover:text-slate-900 dark:hover:text-white", "bg-primary-50 dark:bg-primary/10 text-primary");
+        div.className = div.className.replace("text-slate-600 hover:bg-slate-100 hover:text-slate-900", "bg-primary-50 text-primary");
       }
     };
 
@@ -6293,13 +6231,13 @@ function renderCustomDictEditor() {
     const li = document.createElement("li");
     li.dataset.index = index;
     li.draggable = true;
-    li.className = `flex items-center justify-between p-3 bg-slate-50 dark:bg-dark-surface-hover border border-slate-200 dark:border-dark-border rounded-md cursor-grab active:cursor-grabbing active:bg-slate-100 dark:active:bg-dark-bg transition-opacity ${item.hidden ? "opacity-50" : "opacity-100"}`;
+    li.className = `flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-md cursor-grab active:cursor-grabbing active:bg-slate-100 transition-opacity ${item.hidden ? "opacity-50" : "opacity-100"}`;
 
     const icon = item.hidden ? "icon-eye-slash" : "icon-eye";
     const title = item.hidden ? window._t("dict.show") : window._t("dict.hide");
     const textClass = item.hidden
-      ? "text-slate-400 dark:text-slate-500 line-through"
-      : "text-slate-700 dark:text-slate-300";
+      ? "text-slate-400 line-through"
+      : "text-slate-700";
 
     const displayName = item.name.startsWith("role.") ? window._t(item.name) : item.name;
 
@@ -6312,11 +6250,11 @@ function renderCustomDictEditor() {
       <div class="flex items-center gap-1 shrink-0">
         <!-- Mobile Up/Down navigation buttons -->
         <div class="flex flex-col sm:hidden mr-2">
-          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
-          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1 py-0.5 leading-none ${index === customRoleDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customRoleDict.length - 1 ? "disabled" : ""}>▼</button>
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, -1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === 0 ? "opacity-30 cursor-not-allowed" : ""}" ${index === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" onclick="event.stopPropagation(); moveCustomDictItem(${index}, 1)" class="text-slate-400 hover:text-slate-700 px-1 py-0.5 leading-none ${index === customRoleDict.length - 1 ? "opacity-30 cursor-not-allowed" : ""}" ${index === customRoleDict.length - 1 ? "disabled" : ""}>▼</button>
         </div>
         <!-- Show/Hide Toggle -->
-        <button onclick="toggleCustomRoleHidden(${index})" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors shrink-0" title="${title}">
+        <button onclick="toggleCustomRoleHidden(${index})" class="text-slate-400 hover:text-slate-600 transition-colors shrink-0" title="${title}">
           <svg class="w-5 h-5"><use href="#${icon}"></use></svg>
         </button>
         <!-- Delete Button -->

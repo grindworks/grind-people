@@ -1,22 +1,13 @@
 @import "tailwindcss";
 
-/* ダークモードのクラスベース切り替えを有効化 */
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:where(.never-used));
 
 @theme {
-  --color-primary: #0f62fe;
-  --color-primary-hover: #0353e9;
-  --color-primary-50: #eff4ff;
-  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-
-  /* ダークモード用サーフェスカラー */
-  --color-dark-bg: #0b0f1a;
-  --color-dark-surface: #131825;
-  --color-dark-surface-hover: #1a2035;
-  --color-dark-border: #1e2a3a;
-  --color-dark-border-hover: #2a3a50;
-  --color-dark-text: #e2e8f0;
-  --color-dark-text-secondary: #94a3b8;
+  --color-primary: oklch(54.6% 0.245 262.881);
+  --color-primary-hover: oklch(48.8% 0.243 264.376);
+  --color-primary-50: oklch(97% 0.014 254.604);
+  --color-primary-100: oklch(93.2% 0.032 255.585);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
 
   /* アニメーション定義 */
   --animate-modal-in: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -35,7 +26,6 @@
 /* 1. クラス名の抽出対象ファイルを明示的に指定 */
 @source "./index.html";
 @source "./main.js";
-@source "../footer.js";
 
 /* --- カスタムキーフレーム定義 --- */
 
@@ -225,40 +215,11 @@
       color 0.3s ease;
   }
 
-  /* ダークモードのグローバルスタイル */
-  html.dark {
-    color-scheme: dark;
-  }
-
   /* フォーカスリングの統一スタイル */
   :focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
     border-radius: 4px;
-  }
-
-  /* ダークモードのスクロールバー */
-  html.dark ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  html.dark ::-webkit-scrollbar-track {
-    background: var(--color-dark-bg);
-  }
-  html.dark ::-webkit-scrollbar-thumb {
-    background: var(--color-dark-border);
-    border-radius: 3px;
-  }
-
-  /* セレクトボックスのダークモード */
-  html.dark select option {
-    background-color: var(--color-dark-surface);
-    color: var(--color-dark-text);
-  }
-
-  /* date inputのダークモード */
-  html.dark input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
   }
 
   /* 詳細モーダルで「最後の1行」の削除ボタンを非表示にする */
