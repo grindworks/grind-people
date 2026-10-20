@@ -516,6 +516,9 @@ function requestPasswordPrompt(message) {
       if (e.key === "Escape") {
         e.preventDefault();
         onCancel();
+      } else if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        onSubmit();
       }
     };
 
@@ -526,6 +529,8 @@ function requestPasswordPrompt(message) {
 }
 
 // Secure generic prompt/confirm/notification dialogs (Alternative to native prompt/confirm/alert)
+let pendingGenericDialog = null;
+
 window.requestCustomPrompt = function (
   title,
   message,
@@ -533,6 +538,8 @@ window.requestCustomPrompt = function (
   mode = "prompt",
 ) {
   return new Promise((resolve) => {
+    // A newer dialog replaces the open one, which resolves as cancelled
+    if (pendingGenericDialog) pendingGenericDialog();
     const modal = document.getElementById("generic-dialog-modal");
     const titleEl = document.getElementById("generic-dialog-title");
     const msgEl = document.getElementById("generic-dialog-message");
@@ -567,10 +574,12 @@ window.requestCustomPrompt = function (
         input.select();
       }, 100);
     } else {
-      setTimeout(() => btnSubmit.focus(), 100);
+      // A confirm starts on Cancel so a stray Enter cannot confirm
+      setTimeout(() => (mode === "confirm" ? btnCancel : btnSubmit).focus(), 100);
     }
 
     const cleanup = () => {
+      pendingGenericDialog = null;
       modal.classList.add("hidden");
       modal.classList.remove("flex");
       // Skip unlocking background if other modals or palettes are open
@@ -591,6 +600,11 @@ window.requestCustomPrompt = function (
       input.onkeydown = null;
       btnSubmit.onkeydown = null;
       btnCancel.onkeydown = null;
+    };
+
+    pendingGenericDialog = () => {
+      cleanup();
+      resolve(mode === "prompt" ? null : false);
     };
 
     btnSubmit.onclick = () => {
@@ -984,6 +998,7 @@ function migrateDatabase() {
 
     // Automatic migration of existing data to contact_fields
     try {
+      let migratedFieldCount = 0;
       const migrated = getDbSetting("contact_fields_migrated");
       if (!migrated) {
         db.run("BEGIN TRANSACTION;");
@@ -1003,13 +1018,16 @@ function migrateDatabase() {
             if (safeContactInfo && safeContactInfo.trim()) {
               const ci = safeContactInfo.trim();
               if (ci.includes("@")) {
-                insertFieldStmt.run([id, "email", ci, "work", 0]);
+                migratedFieldCount++;
+              insertFieldStmt.run([id, "email", ci, "work", 0]);
               } else {
-                insertFieldStmt.run([id, "phone", ci, "mobile", 0]);
+                migratedFieldCount++;
+              insertFieldStmt.run([id, "phone", ci, "mobile", 0]);
               }
             }
             const safeRole = role ? String(role) : "";
             if (safeRole && safeRole.trim()) {
+              migratedFieldCount++;
               insertFieldStmt.run([id, "job_title", safeRole.trim(), "other", 0]);
             }
           }
@@ -1021,7 +1039,8 @@ function migrateDatabase() {
           if (migrateStmt) migrateStmt.free();
           if (insertFieldStmt) insertFieldStmt.free();
         }
-        setDbSetting("contact_fields_migrated", "true");
+        // A fresh empty file has nothing to migrate and must not start out unsaved
+        setDbSetting("contact_fields_migrated", "true", migratedFieldCount > 0);
       }
     } catch (e) {
       console.warn("contact_fields migration skipped", e);
@@ -1215,7 +1234,8 @@ function parseVCardText(text) {
       let value = line.substring(colonIdx + 1).trim();
       if (!value) continue;
       const parts = left.split(";");
-      const propName = parts[0].toUpperCase();
+      // Apple and Google prefix properties with a group name (item1.EMAIL)
+      const propName = parts[0].replace(/^[A-Za-z0-9-]+\./, "").toUpperCase();
       const params = parts.slice(1).map((p) => p.toUpperCase());
       const typeParam = params.find((p) => p.startsWith("TYPE="));
       const typeVal = typeParam
@@ -3391,6 +3411,7 @@ async function savePeopleFile(isSaveAs = false) {
   try {
     db.run("VACUUM");
     let data = db.export();
+    const versionAtExport = dirtyVersion;
     const currentPassword = document.getElementById("file-password").value;
     const currentPasswordHash = await sha256(currentPassword);
 
@@ -3480,8 +3501,10 @@ async function savePeopleFile(isSaveAs = false) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setDirty(false);
-        await clearDraft();
+        if (dirtyVersion === versionAtExport) {
+          setDirty(false);
+          await clearDraft();
+        }
         showToast(
           window._t("toast.downloaded", escapeHtml(a.download)),
           '<span class="text-green-400">💾</span>',
@@ -3514,8 +3537,11 @@ async function savePeopleFile(isSaveAs = false) {
     const writable = await fileHandle.createWritable();
     await writable.write(data);
     await writable.close();
-    setDirty(false);
-    await clearDraft();
+    // Edits made while saving are not in the file; keep them marked as unsaved
+    if (dirtyVersion === versionAtExport) {
+      setDirty(false);
+      await clearDraft();
+    }
 
     showToast(
       window._t("toast.saved_to", escapeHtml(fileHandle.name)),
@@ -3568,6 +3594,7 @@ async function processFileHandle(handle) {
     // Prevent OOM crash caused by massive files
     if (file.size > 50 * 1024 * 1024) {
       await appAlert(window._t("error.file_too_large_50"), window._t("error.fatal_title"));
+      hideStatus();
       return;
     }
 
@@ -3578,6 +3605,8 @@ async function processFileHandle(handle) {
     const magicStr = new TextDecoder().decode(magic);
     const isEncrypted = magicStr === "GRINDENC" || magicStr === "GRINDEN2";
 
+    // Applied to the page only after the file proves valid, so a bad file cannot change the password state
+    let openedPassword = "";
     if (isEncrypted) {
       let password = document.getElementById("file-password").value;
       let success = false;
@@ -3587,10 +3616,7 @@ async function processFileHandle(handle) {
         try {
           Uints = await decryptData(encryptedOriginal, password);
           success = true;
-          if (password) {
-            document.getElementById("file-password").value = password;
-            lastSavedPasswordHash = await sha256(password);
-          }
+          openedPassword = password;
         } catch (err) {
           const msg =
             attempt > 0
@@ -3604,9 +3630,6 @@ async function processFileHandle(handle) {
           attempt++;
         }
       }
-    } else {
-      document.getElementById("file-password").value = "";
-      lastSavedPasswordHash = "";
     }
 
     let newDb;
@@ -3648,6 +3671,9 @@ async function processFileHandle(handle) {
     collapsedBlocks.clear();
     currentActiveTag = null;
     currentDisplayedTotal = 0;
+
+    document.getElementById("file-password").value = openedPassword;
+    lastSavedPasswordHash = openedPassword ? await sha256(openedPassword) : "";
 
     // Set handle before UI update to reflect correct filename
     fileHandle = handle;
@@ -5686,19 +5712,24 @@ function renderCommandList(query = "") {
   });
 }
 
+function isAnyModalOpen() {
+  return [
+    "csv-mapping-modal",
+    "export-modal",
+    "contact-detail-modal",
+    "password-prompt-modal",
+    "role-dict-editor-modal",
+    "generic-dialog-modal",
+  ].some((id) => !document.getElementById(id).classList.contains("hidden"));
+}
+
 document.addEventListener("keydown", (e) => {
   const key = e.key?.toLowerCase();
   if (!key) return; // Ignore special events where key info cannot be obtained
 
   if ((e.metaKey || e.ctrlKey) && key === "k") {
     e.preventDefault();
-    const isAnyModalOpen = !document.getElementById("csv-mapping-modal").classList.contains("hidden") ||
-                           !document.getElementById("export-modal").classList.contains("hidden") ||
-                           !document.getElementById("contact-detail-modal").classList.contains("hidden") ||
-                           !document.getElementById("password-prompt-modal").classList.contains("hidden") ||
-                           !document.getElementById("role-dict-editor-modal").classList.contains("hidden") ||
-                           !document.getElementById("generic-dialog-modal").classList.contains("hidden");
-    if (isAnyModalOpen) return;
+    if (isAnyModalOpen()) return;
 
     toggleCommandPalette();
     return;
@@ -5722,6 +5753,7 @@ document.addEventListener("keydown", (e) => {
     (key === "s" || key === "ｓ" || e.code === "KeyS")
   ) {
     e.preventDefault();
+    if (isAnyModalOpen()) return;
     if (e.shiftKey) {
       savePeopleFile(true); // Save As
     } else {
@@ -5736,6 +5768,7 @@ document.addEventListener("keydown", (e) => {
     (key === "o" || key === "ｏ" || e.code === "KeyO")
   ) {
     e.preventDefault();
+    if (isAnyModalOpen()) return;
     loadPeopleFile();
     return;
   }
@@ -6234,6 +6267,7 @@ function setAllCustomRolesHidden(isHidden) {
 
 if (!window.isSecureContext) {
   document.addEventListener("DOMContentLoaded", async () => {
+    await window.I18n.init(safeLocalStorageGet('app_lang') || navigator.language.split('-')[0]);
     await appAlert(window._t("alert.http_desc"), window._t("alert.http_title"));
     showToast(
       window._t("error.http_required"),

@@ -262,8 +262,8 @@
           </button>
 
 
-          <!-- Settings Dropdown (positioned against the header) -->
-          <div>
+          <!-- Settings Dropdown -->
+          <div class="lg:relative">
             <button id="settings-menu-btn" onclick="toggleSettingsMenu(event)"
               class="bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md text-slate-500 hover:text-slate-900 text-sm transition-all cursor-pointer shrink-0"
               data-i18n-title="title.settings" title="Settings">
@@ -272,7 +272,7 @@
               </svg>
             </button>
             <!-- Settings Dropdown -->
-            <div id="settings-dropdown" class="hidden absolute left-0 lg:left-auto lg:right-0 mt-2 w-60 bg-white/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5">
+            <div id="settings-dropdown" class="hidden absolute left-0 mt-2 w-60 bg-white/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5">
               <div class="p-1.5 flex flex-col gap-0.5">
 
                 <!-- Language Selection -->
