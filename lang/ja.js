@@ -178,6 +178,8 @@ export default {
     "toast.group_shared": "グループを共有しました",
     "error.fatal_title": "エラー",
     "error.warning_title": "警告",
+    "alert.title": "通知",
+    "prompt.input_title": "入力",
     "confirm.title": "確認",
     "update.ready": "新しいバージョンがあります。",
     "update.apply": "再読み込み",

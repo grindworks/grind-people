@@ -618,6 +618,24 @@ window.requestCustomPrompt = function (
   });
 };
 
+// Shared dialog API: appAlert, appConfirm and appPrompt return Promises
+function appAlert(message, title = window._t("alert.title")) {
+  return window.requestCustomPrompt(title, message, "", "alert");
+}
+
+function appConfirm(message, title = window._t("confirm.title")) {
+  return window.requestCustomPrompt(title, message, "", "confirm");
+}
+
+function appPrompt(
+  message,
+  defaultValue = "",
+  { type = "text", title = window._t("prompt.input_title") } = {},
+) {
+  if (type === "password") return requestPasswordPrompt(message);
+  return window.requestCustomPrompt(title, message, defaultValue, "prompt");
+}
+
 function handlePlainTextPaste(event) {
   event.preventDefault();
   const text = (event.clipboardData || window.clipboardData).getData(
@@ -778,12 +796,7 @@ document.addEventListener("paste", async (e) => {
     e.preventDefault();
     const contacts = parseVCardText(text);
     if (contacts.length > 0) {
-      const isConfirmed = await window.requestCustomPrompt(
-        window._t("confirm.import_vcard_title"),
-        window._t("confirm.import_vcard_desc", contacts.length),
-        "",
-        "confirm"
-      );
+      const isConfirmed = await appConfirm(window._t("confirm.import_vcard_desc", contacts.length), window._t("confirm.import_vcard_title"));
       if (isConfirmed) executeVCardImport(contacts);
     } else {
       showToast(window._t("error.vcard_parse"), "⚠️", "error");
@@ -1388,23 +1401,13 @@ async function importVCardFile(file) {
 
   // Block files larger than 50MB to prevent out-of-memory (OOM) crashes
   if (file.size > 52428800) {
-    await window.requestCustomPrompt(
-      window._t("error.fatal_title"),
-      window._t("error.file_too_large_50"),
-      "",
-      "alert",
-    );
+    await appAlert(window._t("error.file_too_large_50"), window._t("error.fatal_title"));
     return;
   }
 
   // File size safety measure (Changed to 20MB to avoid false positives with photo vCards)
   if (file.size > 20971520) {
-    const isConfirmed = await window.requestCustomPrompt(
-      window._t("error.warning_title"),
-      window._t("error.file_too_large_20"),
-      "",
-      "confirm",
-    );
+    const isConfirmed = await appConfirm(window._t("error.file_too_large_20"), window._t("error.warning_title"));
     if (!isConfirmed) {
       return;
     }
@@ -1422,12 +1425,7 @@ async function importVCardFile(file) {
     showToast(window._t("error.vcard_parse"), "⚠️", "error");
     return;
   }
-  const isConfirmed = await window.requestCustomPrompt(
-    window._t("confirm.import_vcard_title"),
-    window._t("confirm.import_vcard_desc", contacts.length),
-    "",
-    "confirm",
-  );
+  const isConfirmed = await appConfirm(window._t("confirm.import_vcard_desc", contacts.length), window._t("confirm.import_vcard_title"));
   if (!isConfirmed) return;
 
   executeVCardImport(contacts);
@@ -1554,12 +1552,7 @@ async function initSQLite() {
     let initialData = null;
     const draft = await loadDraft();
     if (draft) {
-      const isConfirmed = await window.requestCustomPrompt(
-        window._t("confirm.restore_draft_title"),
-        window._t("confirm.restore_draft_desc"),
-        "",
-        "confirm",
-      );
+      const isConfirmed = await appConfirm(window._t("confirm.restore_draft_desc"), window._t("confirm.restore_draft_title"));
       if (isConfirmed) {
         initialData = draft;
         let Uints = draft;
@@ -1585,14 +1578,9 @@ async function initSQLite() {
                 attempt > 0
                   ? window._t("prompt.pw_wrong")
                   : window._t("prompt.pw_backup");
-              password = await requestPasswordPrompt(msg);
+              password = await appPrompt(msg, "", { type: "password" });
               if (password === null) {
-                await window.requestCustomPrompt(
-                  window._t("alert.cancel_startup_title"),
-                  window._t("alert.cancel_startup_desc"),
-                  "",
-                  "alert",
-                );
+                await appAlert(window._t("alert.cancel_startup_desc"), window._t("alert.cancel_startup_title"));
                 document.getElementById("app-ui")?.classList.add("hidden");
                 const errorScreen =
                   document.getElementById("fatal-error-screen");
@@ -1628,12 +1616,7 @@ async function initSQLite() {
         );
       } catch (dbError) {
         console.error("ドラフトの復元に失敗しました。", dbError);
-        await window.requestCustomPrompt(
-          window._t("error.fatal_title"),
-          window._t("error.draft_corrupted"),
-          "",
-          "alert",
-        );
+        await appAlert(window._t("error.draft_corrupted"), window._t("error.fatal_title"));
         await clearDraft();
         db = new SQL.Database();
         db.run(`
@@ -1712,12 +1695,7 @@ function handleLaunchFiles() {
       if (!launchParams.files || launchParams.files.length === 0) return;
 
       if (isDirty) {
-        const isConfirmed = await window.requestCustomPrompt(
-          window._t("confirm.title"),
-          window._t("confirm.discard_changes"),
-          "",
-          "confirm",
-        );
+        const isConfirmed = await appConfirm(window._t("confirm.discard_changes"), window._t("confirm.title"));
         if (!isConfirmed) {
           return;
         }
@@ -3062,12 +3040,7 @@ async function saveTemplate(blockId) {
     if (itemsStmt) itemsStmt.free();
   }
 
-  let tplName = await window.requestCustomPrompt(
-    window._t("prompt.save_tpl_title"),
-    window._t("prompt.save_tpl_desc"),
-    window._t("prompt.save_tpl_default", blockMemo),
-    "prompt",
-  );
+  let tplName = await appPrompt(window._t("prompt.save_tpl_desc"), window._t("prompt.save_tpl_default", blockMemo), { title: window._t("prompt.save_tpl_title") });
   if (!tplName) return;
 
   let stmt;
@@ -3219,12 +3192,7 @@ async function deleteRecord(id, force = false) {
         ? window._t("confirm.delete_group", childCount)
         : window._t("confirm.delete_record");
 
-    const isConfirmed = await window.requestCustomPrompt(
-      window._t("confirm.title"),
-      msg,
-      "",
-      "confirm",
-    );
+    const isConfirmed = await appConfirm(msg, window._t("confirm.title"));
     if (!isConfirmed) return;
   }
 
@@ -3255,12 +3223,7 @@ async function deleteRecord(id, force = false) {
 // Manually sort details in block by date
 async function sortBlockByDate(blockId) {
   if (!db) return;
-  const isConfirmed = await window.requestCustomPrompt(
-    window._t("confirm.sort_title"),
-    window._t("confirm.sort_desc"),
-    "",
-    "confirm",
-  );
+  const isConfirmed = await appConfirm(window._t("confirm.sort_desc"), window._t("confirm.sort_title"));
   if (!isConfirmed) return;
 
   let stmt;
@@ -3432,12 +3395,7 @@ async function savePeopleFile(isSaveAs = false) {
     const currentPasswordHash = await sha256(currentPassword);
 
     if (lastSavedPasswordHash !== "" && currentPassword === "") {
-      const isConfirmed = await window.requestCustomPrompt(
-        window._t("alert.pw_empty_title"),
-        window._t("alert.pw_empty_desc"),
-        "",
-        "confirm",
-      );
+      const isConfirmed = await appConfirm(window._t("alert.pw_empty_desc"), window._t("alert.pw_empty_title"));
       if (!isConfirmed) {
         isSaving = false;
         return;
@@ -3445,9 +3403,7 @@ async function savePeopleFile(isSaveAs = false) {
     }
 
     if (currentPassword !== "" && currentPasswordHash !== lastSavedPasswordHash) {
-      const confirmPw = await requestPasswordPrompt(
-        window._t("prompt.pw_new"),
-      );
+      const confirmPw = await appPrompt(window._t("prompt.pw_new"), "", { type: "password" });
       if (confirmPw === null) {
         isSaving = false;
         return;
@@ -3550,12 +3506,7 @@ async function savePeopleFile(isSaveAs = false) {
           }
         }
       } catch (e) {
-        await window.requestCustomPrompt(
-          window._t("error.fatal_title"),
-          window._t("error.write_permission"),
-          "",
-          "alert",
-        );
+        await appAlert(window._t("error.write_permission"), window._t("error.fatal_title"));
         return;
       }
     }
@@ -3616,12 +3567,7 @@ async function processFileHandle(handle) {
 
     // Prevent OOM crash caused by massive files
     if (file.size > 50 * 1024 * 1024) {
-      await window.requestCustomPrompt(
-        window._t("error.fatal_title"),
-        window._t("error.file_too_large_50"),
-        "",
-        "alert",
-      );
+      await appAlert(window._t("error.file_too_large_50"), window._t("error.fatal_title"));
       return;
     }
 
@@ -3650,7 +3596,7 @@ async function processFileHandle(handle) {
             attempt > 0
               ? window._t("prompt.pw_wrong")
               : window._t("prompt.pw_desc");
-          password = await requestPasswordPrompt(msg);
+          password = await appPrompt(msg, "", { type: "password" });
           if (password === null) {
             hideStatus();
             return; // Cancel and abort processing
@@ -3729,12 +3675,7 @@ async function processFileHandle(handle) {
 // 5.1 Load using File System Access API from the 'Open' button
 async function loadPeopleFile() {
   if (isDirty) {
-    const isConfirmed = await window.requestCustomPrompt(
-      window._t("confirm.title"),
-      window._t("confirm.discard_changes"),
-      "",
-      "confirm",
-    );
+    const isConfirmed = await appConfirm(window._t("confirm.discard_changes"), window._t("confirm.title"));
     if (!isConfirmed) {
       return;
     }
@@ -4134,12 +4075,7 @@ function exportVCard() {
 // Export members with specific tags only
 async function exportTagVCard(tag, dataItems) {
   if (!dataItems || dataItems.length === 0) return;
-  const isConfirmed = await window.requestCustomPrompt(
-    window._t("confirm.export_tag_title"),
-    window._t("confirm.export_tag_desc", [tag, dataItems.length]),
-    "",
-    "confirm",
-  );
+  const isConfirmed = await appConfirm(window._t("confirm.export_tag_desc", [tag, dataItems.length]), window._t("confirm.export_tag_title"));
   if (!isConfirmed) return;
 
   // Attach detail fields to each item
@@ -4263,12 +4199,7 @@ async function importCSV(event) {
 
   // Warn and prevent crash if exceeding 5MB (5 * 1024 * 1024 bytes)
   if (file.size > 5242880) {
-    await window.requestCustomPrompt(
-      window._t("error.fatal_title"),
-      window._t("error.file_too_large_5"),
-      "",
-      "alert",
-    );
+    await appAlert(window._t("error.file_too_large_5"), window._t("error.fatal_title"));
     inputElement.value = "";
     return;
   }
@@ -4567,12 +4498,7 @@ async function executeCSVImport() {
   const rowsToProcess = dataToImport.length - startIndex;
 
   if (rowsToProcess > MAX_IMPORT_ROWS) {
-    await window.requestCustomPrompt(
-      window._t("error.warning_title"),
-      window._t("alert.too_many_rows", [rowsToProcess, MAX_IMPORT_ROWS]),
-      "",
-      "alert",
-    );
+    await appAlert(window._t("alert.too_many_rows", [rowsToProcess, MAX_IMPORT_ROWS]), window._t("error.warning_title"));
   }
   const endIndex = Math.min(
     dataToImport.length,
@@ -4723,12 +4649,7 @@ async function executeCSVImport() {
 
 // --- Merge processing for QR Coder history CSV ---
 async function executeQRCoderHistoryImport(data, headers) {
-  const isConfirmed = await window.requestCustomPrompt(
-    window._t("confirm.title"),
-    window._t("confirm.qr_history_import", data.length),
-    "",
-    "confirm"
-  );
+  const isConfirmed = await appConfirm(window._t("confirm.qr_history_import", data.length), window._t("confirm.title"));
   if (!isConfirmed) {
     pendingCSVData = [];
     pendingCSVBuffer = null;
@@ -5042,12 +4963,7 @@ async function closeContactDetail(checkChanges = true) {
   if (checkChanges) {
     const currentDataSnapshot = JSON.stringify(getDetailFormData());
     if (originalDetailDataSnapshot && originalDetailDataSnapshot !== currentDataSnapshot) {
-      const isConfirmed = await window.requestCustomPrompt(
-        window._t("confirm.title"),
-        window._t("alert.unsaved_changes"),
-        "",
-        "confirm"
-      );
+      const isConfirmed = await appConfirm(window._t("alert.unsaved_changes"), window._t("confirm.title"));
       if (!isConfirmed) return; // Do not close if canceled
     }
   }
@@ -5570,12 +5486,7 @@ function getDynamicCommands() {
             keepOpen: true, // Setting to not close palette
             action: async () => {
               if (
-                await window.requestCustomPrompt(
-                  window._t("confirm.delete_tpl_title"),
-                  window._t("confirm.delete_tpl_desc", row[1]),
-                  "",
-                  "confirm",
-                )
+                await appConfirm(window._t("confirm.delete_tpl_desc", row[1]), window._t("confirm.delete_tpl_title"))
               ) {
                 db.run("DELETE FROM templates WHERE id = ?", [row[0]]);
                 setDirty(true);
@@ -5995,12 +5906,7 @@ if (typeof BroadcastChannel !== "undefined") {
       // If I am the tab that was opened later
       if (!hasAlerted) {
         hasAlerted = true;
-        await window.requestCustomPrompt(
-          window._t("error.warning_title"),
-          window._t("alert.multi_tab"),
-          "",
-          "alert",
-        );
+        await appAlert(window._t("alert.multi_tab"), window._t("error.warning_title"));
         document.body.style.opacity = "0.5";
         document.body.style.pointerEvents = "none";
       }
@@ -6305,12 +6211,7 @@ function moveCustomDictItem(index, direction) {
 }
 
 async function deleteCustomDictItem(index) {
-  const isConfirmed = await window.requestCustomPrompt(
-    window._t("confirm.delete_dict_title"),
-    window._t("confirm.delete_dict_desc", customRoleDict[index].name),
-    "",
-    "confirm",
-  );
+  const isConfirmed = await appConfirm(window._t("confirm.delete_dict_desc", customRoleDict[index].name), window._t("confirm.delete_dict_title"));
   if (isConfirmed) {
     customRoleDict.splice(index, 1);
     renderCustomDictEditor();
@@ -6333,12 +6234,7 @@ function setAllCustomRolesHidden(isHidden) {
 
 if (!window.isSecureContext) {
   document.addEventListener("DOMContentLoaded", async () => {
-    await window.requestCustomPrompt(
-      window._t("alert.http_title"),
-      window._t("alert.http_desc"),
-      "",
-      "alert",
-    );
+    await appAlert(window._t("alert.http_desc"), window._t("alert.http_title"));
     showToast(
       window._t("error.http_required"),
       '<span class="text-red-400">⚠️</span>',
@@ -6541,12 +6437,7 @@ document.addEventListener("drop", async (e) => {
 
   if (extName.endsWith(".people")) {
     if (isDirty) {
-      const isConfirmed = await window.requestCustomPrompt(
-        window._t("confirm.title"),
-        window._t("confirm.discard_changes"),
-        "",
-        "confirm",
-      );
+      const isConfirmed = await appConfirm(window._t("confirm.discard_changes"), window._t("confirm.title"));
       if (!isConfirmed) {
         return;
       }

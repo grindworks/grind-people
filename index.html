@@ -262,58 +262,8 @@
           </button>
 
 
-          <!-- Encryption Password Input -->
-          <form onsubmit="event.preventDefault();" class="relative flex items-center">
-            <input type="text" autocomplete="username" class="sr-only" value="local-user" tabindex="-1">
-            <label for="file-password" class="sr-only">暗号化パスワード</label>
-            <input type="password" id="file-password" data-i18n-placeholder="placeholder.password" placeholder="Encryption Password..." autocomplete="new-password"
-              data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
-              class="bg-white shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary rounded-md outline-none w-44 text-slate-900 text-base sm:text-sm transition-all placeholder-slate-400"
-              data-i18n-title="title.password_help" title="Entering a password will strongly encrypt the file upon saving.">
-            <button type="button" onclick="togglePasswordVisibility()"
-              class="right-2 absolute text-slate-400 hover:text-slate-600 transition-colors" data-i18n-title="title.toggle_password" title="Toggle password visibility">
-              <svg id="icon-eye-open" class="hidden w-4 h-4">
-                <use href="#icon-eye"></use>
-              </svg>
-              <svg id="icon-eye-closed" class="w-4 h-4">
-                <use href="#icon-eye-slash"></use>
-              </svg>
-            </button>
-          </form>
-
-          <button onclick="loadPeopleFile()"
-            class="bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-600 hover:text-slate-900 text-sm transition-colors cursor-pointer shrink-0"
-            data-i18n-title="btn.open" title="Open">
-            <svg class="w-4 h-4">
-              <use href="#icon-folder"></use>
-            </svg>
-          </button>
-          <button id="btn-save" onclick="savePeopleFile()"
-            class="relative bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-900 text-sm transition-all duration-300 cursor-pointer shrink-0"
-            data-i18n-title="btn.save" title="Save">
-            <svg class="w-4 h-4 transition-all duration-300">
-              <use href="#icon-save"></use>
-            </svg>
-            <!-- Unsaved Badge -->
-            <span id="dirty-badge" class="hidden -top-1 -right-1 absolute w-3 h-3">
-              <span class="inline-flex relative bg-orange-500 shadow-[0_0_8px_var(--color-orange-500)] border-2 border-white rounded-full w-3 h-3">
-              </span>
-            </span>
-          </button>
-
-          <!-- Command Palette Invoke Button -->
-          <button onclick="toggleCommandPalette()"
-            class="flex items-center gap-2 bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-600 hover:text-slate-900 text-sm transition-colors cursor-pointer shrink-0"
-            data-i18n-title="title.cmd" title="Open Command Palette">
-            <svg class="w-4 h-4">
-              <use href="#icon-search"></use>
-            </svg>
-            <span id="cmd-shortcut-key"
-              class="px-1 border border-slate-300 rounded font-mono text-xs transition-colors">⌘K</span>
-          </button>
-
-          <!-- Settings Dropdown -->
-          <div class="relative">
+          <!-- Settings Dropdown (positioned against the header) -->
+          <div>
             <button id="settings-menu-btn" onclick="toggleSettingsMenu(event)"
               class="bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md text-slate-500 hover:text-slate-900 text-sm transition-all cursor-pointer shrink-0"
               data-i18n-title="title.settings" title="Settings">
@@ -322,7 +272,7 @@
               </svg>
             </button>
             <!-- Settings Dropdown -->
-            <div id="settings-dropdown" class="hidden absolute right-0 mt-2 w-60 bg-white/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5">
+            <div id="settings-dropdown" class="hidden absolute left-0 lg:left-auto lg:right-0 mt-2 w-60 bg-white/95 backdrop-blur-xl shadow-2xl border border-slate-200/80 rounded-xl overflow-hidden z-50 origin-top-right transition-all animate-fade-in ring-1 ring-slate-900/5">
               <div class="p-1.5 flex flex-col gap-0.5">
 
                 <!-- Language Selection -->
@@ -372,6 +322,56 @@
               </div>
             </div>
           </div>
+
+          <!-- Encryption Password Input -->
+          <form onsubmit="event.preventDefault();" class="relative flex items-center">
+            <input type="text" autocomplete="username" class="sr-only" value="local-user" tabindex="-1">
+            <label for="file-password" class="sr-only">暗号化パスワード</label>
+            <input type="password" id="file-password" data-i18n-placeholder="placeholder.password" placeholder="Encryption Password..." autocomplete="new-password"
+              data-lpignore="true" spellcheck="false" autocorrect="off" autocapitalize="off"
+              class="bg-white shadow-sm py-2 pr-8 pl-3 border border-slate-200 focus:border-primary rounded-md outline-none w-44 text-slate-900 text-base sm:text-sm transition-all placeholder-slate-400"
+              data-i18n-title="title.password_help" title="Entering a password will strongly encrypt the file upon saving.">
+            <button type="button" onclick="togglePasswordVisibility()"
+              class="right-2 absolute text-slate-400 hover:text-slate-600 transition-colors" data-i18n-title="title.toggle_password" title="Toggle password visibility">
+              <svg id="icon-eye-open" class="hidden w-4 h-4">
+                <use href="#icon-eye"></use>
+              </svg>
+              <svg id="icon-eye-closed" class="w-4 h-4">
+                <use href="#icon-eye-slash"></use>
+              </svg>
+            </button>
+          </form>
+
+          <button onclick="loadPeopleFile()"
+            class="bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-600 hover:text-slate-900 text-sm transition-colors cursor-pointer shrink-0"
+            data-i18n-title="btn.open" title="Open">
+            <svg class="w-4 h-4">
+              <use href="#icon-folder"></use>
+            </svg>
+          </button>
+          <button id="btn-save" onclick="savePeopleFile()"
+            class="relative bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-900 text-sm transition-all duration-300 cursor-pointer shrink-0"
+            data-i18n-title="btn.save" title="Save">
+            <svg class="w-4 h-4 transition-all duration-300">
+              <use href="#icon-save"></use>
+            </svg>
+            <!-- Unsaved Badge -->
+            <span id="dirty-badge" class="hidden -top-1 -right-1 absolute w-3 h-3">
+              <span class="inline-flex relative bg-orange-500 shadow-[0_0_8px_var(--color-orange-500)] border-2 border-white rounded-full w-3 h-3">
+              </span>
+            </span>
+          </button>
+
+          <!-- Command Palette Invoke Button -->
+          <button onclick="toggleCommandPalette()"
+            class="flex items-center gap-2 bg-white hover:bg-slate-100 shadow-sm px-3 py-2 border border-slate-200 rounded-md font-medium text-slate-600 hover:text-slate-900 text-sm transition-colors cursor-pointer shrink-0"
+            data-i18n-title="title.cmd" title="Open Command Palette">
+            <svg class="w-4 h-4">
+              <use href="#icon-search"></use>
+            </svg>
+            <span id="cmd-shortcut-key"
+              class="px-1 border border-slate-300 rounded font-mono text-xs transition-colors">⌘K</span>
+          </button>
 
           <!-- Hidden input (for triggering from command palette) -->
           <input type="file" id="csv-input" accept=".csv" class="hidden" onchange="importCSV(event)">

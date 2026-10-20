@@ -178,6 +178,8 @@ export default {
     "toast.group_shared": "Group shared",
     "error.fatal_title": "Error",
     "error.warning_title": "Warning",
+    "alert.title": "Alert",
+    "prompt.input_title": "Input",
     "confirm.title": "Confirm",
     "update.ready": "A new version is available.",
     "update.apply": "Reload",
