@@ -25,6 +25,7 @@
 ## 4. Known gaps against shared §7
 
 - `sw.js` has an inline offline fallback page with Japanese text.
+- Warning and error toasts use red backgrounds; the shared rule keeps the pill dark for every type.
 - Toasts appear at the bottom and stack up to 3; the shared rule is one pill at the top center. The update toast sits at `bottom-24` to clear them; move it to `bottom-6` when the toasts move.
 - Tailwind is 4.2.4 through a git-ignored `./tailwindcss-macos-arm64` binary; move to 4.3.1 with the pinned-binary `build.sh` from grind-qrcoder.
 - Japanese outside `lang/`: a console message in `main.js`, fallback text in `index.html`, comments in `input.css` and `.gitignore`.
