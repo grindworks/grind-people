@@ -109,8 +109,8 @@ function isPeopleDatabase(database) {
 
 function sanitizeCsvCell(value) {
   let cell = String(value || "");
-  // Formula injection: keep leading + / - when the rest looks like a phone number
-  if (/^[=@]/.test(cell) || /^[+\-](?!\d)/.test(cell)) {
+  // Formula injection: keep a leading + / - only for values that are purely phone-like
+  if (/^[=@\t\r]/.test(cell) || (/^[+\-]/.test(cell) && !/^[+\-][\d\s().-]+$/.test(cell))) {
     cell = "'" + cell;
   }
   return `"${cell.replace(/"/g, '""')}"`;
@@ -660,7 +660,7 @@ function handlePlainTextPaste(event) {
   // Automatically format cleverly (Remove prefixes like TEL:)
   if (event.target.getAttribute("data-field") === "contact_info") {
     cleanText = cleanText
-      .replace(/^(TEL|FAX|Email|Mail|E-mail|電話)[\s:：]*/i, "")
+      .replace(/^(?:(?:TEL|FAX|E-?mail|Mail)(?:\s*[:：]\s*|\s+)|電話[\s:：]*)/i, "")
       .trim(); // Keep intentional internal spaces (e.g., " / ")
   }
 
@@ -690,13 +690,20 @@ function handlePlainTextPaste(event) {
 
 // --- Feature: Smart Paste (Signature Parser) ---
 function parseSignatureData(text) {
+  // Bounded lengths keep the scan linear on very long runs without an @
   const emailMatch = text.match(
-    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/,
+    /([a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,255}\.[a-zA-Z]{2,})/,
   );
   // JP (090-1234-5678), NANP, and intl (+81 ...) — avoid requiring too many digit groups
-  const phoneMatch = text.match(
-    /(?:(?:TEL|Phone|Tel|電話|Mobile|携帯|FAX)[\s:：]*)?(\+?\d[\d\s().-]{6,}\d)/i,
+  // Prefer a labeled number, and ignore the postal mark so 〒100-0001 is not taken as the phone
+  const labeledPhone = text.match(
+    /(?:TEL|Phone|電話|Mobile|携帯)[\s:：]*(\+?\d[\d\s().-]{6,}\d)/i,
   );
+  const phoneMatch =
+    labeledPhone ||
+    text
+      .replace(/〒\s*\d{3}-?\d{4}/g, "")
+      .match(/(?:(?:FAX)[\s:：]*)?(\+?\d[\d\s().-]{6,}\d)/i);
 
   if (!emailMatch && !phoneMatch) return null;
 
@@ -743,10 +750,19 @@ function parseSignatureData(text) {
     "Founder",
     "Consultant",
   ];
+  const isAddressLine = (l) => /〒/.test(l) || (/\d/.test(l) && /[都道府県市区町村]/.test(l));
+  // ASCII keywords match whole words so "Engineering" is not an "Engineer"
+  const hasKeyword = (l, kw) =>
+    /^[A-Za-z]+$/.test(kw) ? new RegExp(`\\b${kw}\\b`).test(l) : l.includes(kw);
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    if (line !== name && !line.includes(email) && !(phone && line.includes(phone))) {
-      if (roleKeywords.some((kw) => line.includes(kw))) {
+    if (
+      line !== name &&
+      (!email || !line.includes(email)) &&
+      !(phone && line.includes(phone)) &&
+      !isAddressLine(line)
+    ) {
+      if (roleKeywords.some((kw) => hasKeyword(line, kw))) {
         role = line;
         break;
       }
@@ -1212,6 +1228,25 @@ function clearContactFieldsByKey(recordId, fieldKey) {
 }
 
 // vCard Parser: vCard text -> Record array
+function splitVCardValue(value) {
+  const parts = [];
+  let cur = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      cur += ch + value[i + 1];
+      i++;
+    } else if (ch === ";") {
+      parts.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  parts.push(cur);
+  return parts.map((part) => unescapeVCardValue(part));
+}
+
 function parseVCardText(text) {
   const contacts = [];
   const cards = text
@@ -1225,7 +1260,18 @@ function parseVCardText(text) {
     // 💡 Fix: Prevent catastrophic backtracking by unfolding lines first, then purging with a simpler regex
     const unfolded = card.replace(/\r?\n[ \t]/g, "");
     const photoRemovedCard = unfolded.replace(/^PHOTO[^:\r\n]*:.*\r?\n?/gmi, "");
-    const lines = photoRemovedCard.split(/\r?\n/);
+    const rawLines = photoRemovedCard.split(/\r?\n/);
+    const lines = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      let line = rawLines[i];
+      // A Quoted-Printable value continues on the next line after a trailing "="
+      if (/^[^:]*QUOTED-PRINTABLE/i.test(line)) {
+        while (line.endsWith("=") && i + 1 < rawLines.length) {
+          line = line.slice(0, -1) + rawLines[++i];
+        }
+      }
+      lines.push(line);
+    }
     for (const line of lines) {
       if (!line || line.match(/^(BEGIN|END|VERSION):/i)) continue;
       const colonIdx = line.indexOf(":");
@@ -1247,13 +1293,15 @@ function parseVCardText(text) {
           p.includes("QUOTED-PRINTABLE"),
       );
       if (isQp) value = decodeQuotedPrintable(value);
+      // N, ORG and ADR are split on unescaped semicolons before unescaping each part
+      const rawValue = value;
       if (propName !== "NOTE") value = unescapeVCardValue(value);
       switch (propName) {
         case "FN":
           contact.displayName = value;
           break;
         case "N": {
-          const np = value.split(";");
+          const np = splitVCardValue(rawValue);
           if (np[0])
             contact.fields.push({
               key: "family_name",
@@ -1290,7 +1338,7 @@ function parseVCardText(text) {
           contact.fields.push({ key: "nickname", value, type: "other" });
           break;
         case "ORG": {
-          const op = value.split(";");
+          const op = splitVCardValue(rawValue);
           contact.org = op[0] || "";
           if (op[0])
             contact.fields.push({
@@ -1318,7 +1366,7 @@ function parseVCardText(text) {
           else if (tl.includes("cell") || tl.includes("mobile")) pt = "mobile";
           else if (tl.includes("work")) pt = "work";
           else if (tl.includes("home")) pt = "home";
-          contact.fields.push({ key: "phone", value, type: pt });
+          contact.fields.push({ key: "phone", value: value.replace(/^tel:/i, ""), type: pt });
           break;
         }
         case "EMAIL": {
@@ -1330,22 +1378,27 @@ function parseVCardText(text) {
           break;
         }
         case "ADR": {
-          const ap = value.split(";");
-          const at = typeVal === "other" ? "home" : typeVal;
-          if (ap[2])
-            contact.fields.push({ key: "addr_street", value: ap[2], type: at });
-          if (ap[3])
-            contact.fields.push({ key: "addr_city", value: ap[3], type: at });
-          if (ap[4])
-            contact.fields.push({ key: "addr_region", value: ap[4], type: at });
-          if (ap[5])
-            contact.fields.push({ key: "addr_postal", value: ap[5], type: at });
-          if (ap[6])
-            contact.fields.push({
-              key: "addr_country",
-              value: ap[6],
-              type: at,
-            });
+          const ap = splitVCardValue(rawValue);
+          // TYPE may list several values (pref,WORK) or be a bare vCard 2.1 parameter (WORK)
+          const adrTypes = params
+            .flatMap((p) => p.replace(/^TYPE=/, "").split(","))
+            .map((t) => t.toLowerCase());
+          const at = adrTypes.includes("work") ? "work" : "home";
+          const addrParts = [
+            ["addr_street", ap[2]],
+            ["addr_city", ap[3]],
+            ["addr_region", ap[4]],
+            ["addr_postal", ap[5]],
+            ["addr_country", ap[6]],
+          ].filter(([, v]) => v);
+          if (addrParts.length) {
+            // Number addresses per type so each part stays with its own address
+            contact.addrCount = contact.addrCount || {};
+            const sortOrder = contact.addrCount[at] || 0;
+            contact.addrCount[at] = sortOrder + 1;
+            for (const [key, v] of addrParts)
+              contact.fields.push({ key, value: v, type: at, sortOrder });
+          }
           break;
         }
         case "BDAY": {
@@ -1527,7 +1580,7 @@ function executeVCardImport(contacts) {
             f.key,
             f.value,
             f.type,
-            counters[counterKey],
+            f.sortOrder ?? counters[counterKey],
           );
           counters[counterKey]++;
         }
@@ -2021,22 +2074,26 @@ function updateRecord(id, field, newValue, element) {
   } else if (field === "contact_info") {
     // 💡 Fix: Identify the type from the safely backed up previous value to avoid accidentally deleting the other contact
     const oldVal = oldValForEAV;
-    const oldType = (oldVal && oldVal.includes("@")) ? "email" : "phone";
-
-    if (val) {
-      const newType = val.includes("@") ? "email" : "phone";
-      const subType = val.includes("@") ? "work" : "mobile";
-
-      if (oldVal) {
-        db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, oldType]);
-      }
-      db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, newType]);
-
-      setContactField(id, newType, val, subType, 0);
-    } else {
-      if (oldVal) {
-        db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, oldType]);
-      }
+    // Smart Paste writes "email / phone"; split it unless a kind repeats, then keep the whole value
+    const classify = (v) => {
+      const parts = String(v || "")
+        .split(/\s+\/\s+/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => ({ key: x.includes("@") ? "email" : "phone", value: x }));
+      const kinds = new Set(parts.map((x) => x.key));
+      if (parts.length > 1 && kinds.size === parts.length) return parts;
+      const whole = String(v || "").trim();
+      return whole ? [{ key: whole.includes("@") ? "email" : "phone", value: whole }] : [];
+    };
+    const oldParts = classify(oldVal);
+    const newParts = classify(val);
+    const touchedKeys = new Set([...oldParts, ...newParts].map((x) => x.key));
+    for (const k of touchedKeys) {
+      db.run("DELETE FROM contact_fields WHERE record_id = ? AND field_key = ? AND sort_order = 0", [id, k]);
+    }
+    for (const part of newParts) {
+      setContactField(id, part.key, part.value, part.key === "email" ? "work" : "mobile", 0);
     }
   }
 
@@ -3491,7 +3548,7 @@ async function savePeopleFile(isSaveAs = false) {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
 
         if (dirtyVersion === versionAtExport) {
           setDirty(false);
@@ -3546,6 +3603,8 @@ async function savePeopleFile(isSaveAs = false) {
     showToast(window._t("error.save_fail"), "⚠️", "error");
   } finally {
     isSaving = false;
+    // A cancelled save cleared the draft timer; schedule it again while changes remain
+    if (isDirty && !draftTimer) setDirty(true);
     if (activeSelector) {
       requestAnimationFrame(() => {
         try {
@@ -3951,10 +4010,7 @@ function generateVCardData(items) {
             vcardData += `URL:${v}\r\n`;
             break;
           case "note":
-            const sanitizedV = v
-              .replace(/BEGIN:/gi, "(BEGIN):")
-              .replace(/END:/gi, "(END):");
-            const escapedV = sanitizedV
+            const escapedV = v
               .replace(/\\/g, "\\\\")
               .replace(/,/g, "\\,")
               .replace(/;/g, "\\;")
@@ -4034,7 +4090,7 @@ function triggerVCardDownload(vcardData, filenameBase) {
   a.href = url;
   a.download = `${filenameBase}_${dateSuffix}.vcf`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // 6.5 Export all to vCard
@@ -4705,7 +4761,8 @@ async function executeQRCoderHistoryImport(data, headers) {
       findStmt.reset();
 
       if (matches.length > 0) {
-        const date = row[idxDate] ? new Date(row[idxDate]).toLocaleDateString() : '';
+        const parsedDate = row[idxDate] ? new Date(row[idxDate]) : null;
+        const date = parsedDate && !isNaN(parsedDate) ? parsedDate.toLocaleDateString() : '';
         const type = row[idxType] || 'QR';
         const content = row[idxContent] || '';
         const historyText = `[QR Coder: ${type}] ${date} - ${content}`;
@@ -4721,6 +4778,7 @@ async function executeQRCoderHistoryImport(data, headers) {
           let newNoteText = historyText;
 
           if (existingNote && existingNote.field_value) {
+            if (existingNote.field_value.includes(historyText)) continue;
             newNoteText = existingNote.field_value + "\n\n" + historyText;
           }
 
@@ -4737,7 +4795,7 @@ async function executeQRCoderHistoryImport(data, headers) {
       }
     }
     db.run("COMMIT;");
-    setDirty(true);
+    if (matchCount > 0) setDirty(true);
     showToast(window._t("toast.qr_history_merged", matchCount), '✨');
     renderData();
   } catch (err) {
@@ -5097,9 +5155,11 @@ function saveContactDetail() {
         [recordId, ...scalarKeys],
       );
     }
+    // The modal has no city field and edits only the first home address; keep everything else
+    const addrKeys = Object.values(DETAIL_FIELD_MAP).filter((k) => k.startsWith("addr_"));
     db.run(
-      "DELETE FROM contact_fields WHERE record_id = ? AND field_key LIKE 'addr_%' AND IFNULL(field_type, 'home') = 'home'",
-      [recordId],
+      `DELETE FROM contact_fields WHERE record_id = ? AND field_key IN (${addrKeys.map(() => "?").join(",")}) AND IFNULL(field_type, 'home') = 'home' AND sort_order = 0`,
+      [recordId, ...addrKeys],
     );
     db.run(
       "DELETE FROM contact_fields WHERE record_id = ? AND field_key = 'url' AND sort_order = 0",
@@ -5307,7 +5367,7 @@ function downloadCSVFile(csvText, filenameBase) {
   a.href = url;
   a.download = `${filenameBase}_${ds}.csv`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // 9. PWA Install Prompt Control
@@ -5719,6 +5779,16 @@ document.addEventListener("keydown", (e) => {
   const key = e.key?.toLowerCase();
   if (!key) return; // Ignore special events where key info cannot be obtained
 
+  if (hasAlerted) {
+    const isAppShortcut =
+      ((e.metaKey || e.ctrlKey) && ["k", "s", "o", "ｋ", "ｓ", "ｏ"].includes(key)) ||
+      (e.altKey && e.code === "KeyN");
+    if (isAppShortcut) {
+      e.preventDefault();
+      return;
+    }
+  }
+
   if ((e.metaKey || e.ctrlKey) && key === "k") {
     e.preventDefault();
     if (isAnyModalOpen()) return;
@@ -5926,7 +5996,8 @@ if (typeof BroadcastChannel !== "undefined") {
 
   bc.onmessage = async (e) => {
     if (e.data === "ping") {
-      bc.postMessage("pong"); // Already opened tab responds
+      // A locked tab stays silent so a third tab cannot lock the original one
+      if (!hasAlerted) bc.postMessage("pong");
     } else if (e.data === "pong") {
       // If I am the tab that was opened later
       if (!hasAlerted) {
@@ -6456,10 +6527,19 @@ document.addEventListener("drop", async (e) => {
 
   // Only reset UI when we will actually import a supported file
   if (isCommandPaletteOpen) toggleCommandPalette();
-  closeCSVModal();
-  closeExportModal();
-  closeRoleDictEditor();
-  closeContactDetail(false);
+  // Ask before closing a detail form with unsaved input, and stop if the user declines
+  const detailModal = document.getElementById("contact-detail-modal");
+  if (detailModal && !detailModal.classList.contains("hidden")) {
+    await closeContactDetail(true);
+    if (!detailModal.classList.contains("hidden")) return;
+  }
+  const closeIfOpen = (id, close) => {
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains("hidden")) close();
+  };
+  closeIfOpen("csv-mapping-modal", closeCSVModal);
+  closeIfOpen("export-modal", closeExportModal);
+  closeIfOpen("role-dict-editor-modal", closeRoleDictEditor);
 
   if (extName.endsWith(".people")) {
     if (isDirty) {
