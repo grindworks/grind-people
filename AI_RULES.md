@@ -1,6 +1,6 @@
 # GrindPeople AI Rules
 
-> Product type: PWA. Shared rules: [`../AGENTS.md`](../AGENTS.md) §1, §2, §4, §6 and §7, and the PWA rules in [`../PWA.md`](../PWA.md). This file adds GrindPeople (PWA) rules and wins where the two differ.
+> Product type: PWA. Shared rules: [`../AGENTS.md`](../AGENTS.md), then the PWA rules in [`../platforms/pwa.md`](../platforms/pwa.md). This file adds GrindPeople (PWA) rules and wins where the two differ.
 > The `.people` file (SQLite, optional `GRINDEN2` encryption) is also read and written by `../grind-people-mac`, and the two must stay byte-compatible. Check `../grind-people-mac/docs/people-file-format.md` before changing the schema, the format or the encryption (this includes the file password feature).
 
 ## 1. Stack
@@ -18,11 +18,11 @@
 
 ## 3. UI
 
-- Look, top bar, shortcuts, toasts, dialogs, wording and languages follow `../PWA.md` UI. Do not restate them here; add only what differs.
+- Look, top bar, shortcuts, toasts, dialogs, wording and languages follow `../platforms/pwa.md` UI. Do not restate them here; add only what differs.
 - Product-specific top-bar controls: the Settings button, placed before the file password field. The Settings dialog must not hold a theme choice (light only).
 - UI languages: English and Japanese, in `lang/`, applied by `i18n.js` (shared with grind-cash, the other app with several languages).
 
-## 4. Known gaps against `../PWA.md`
+## 4. Known gaps against `../platforms/pwa.md`
 
 - `sw.js` has an inline offline fallback page with Japanese text. It stays: it is shown only when the app cannot load.
 - Japanese fallback text in `index.html` (shown only before `lang/` loads) and Japanese comments in `main.js` stay: the shared rule does not require rewriting existing comments.
